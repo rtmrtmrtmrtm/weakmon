@@ -1,0 +1,105 @@
+Fano decoder v1.1
+Copyright 1995 Phil Karn
+
+This package includes an encoder and a soft-decision sequential
+decoder for K=32, rate 1/2 convolutional codes. The decoder uses the
+Fano algorithm.
+
+Also included are support routines to generate metric tables that are
+optimized for gaussian noise with a specified Eb/N0 ratio, and a test
+driver that exercises the encoder/decoder routines and keeps statistics.
+
+The files are as follows:
+
+README		this file
+Makefile	Makefile for GCC under BSDI 2.0 (edit to taste)
+fano.h		header file with declarations for fano.c
+fano.c		the encoder and Fano decoder routines
+metrics.c	metric table generator
+sim.c		transmitter/channel simulator (including gaussian noise gen)
+seqtest.c	driver program for testing
+tab.c		parity lookup table
+
+The test program in seqtest.c creates a test frame, encodes it, adds
+gaussian noise and decodes it. It then repeats a specified number of
+times, keeping a histogram on the number of decoder cycles required
+per bit. By default, the program continuously displays the statistics
+using the UNIX "curses" package; this can be suppressed with the -q
+(quiet) option.
+
+The gaussian random number generator in sim.c uses the traditional
+"rejection" method. This requires slightly more than one floating
+point square root and log function per pair of gaussian numbers. This
+makes noise generation rather slow, much slower in fact than the
+actual sequential decoding process (except for very noisy
+packets). The BSDI 2.0 math library routines do not make use of the
+native 387 FPU instructions, and this made it even slower. So the
+makefile specifies a separate library that I built locally (-lm387)
+with versions of the log and sqrt functions that do use the FPU. Other
+386/486 UNIX clones apparently do have updated math libraries, so this
+special library shouldn't be necessary. In that case, simply eliminate
+the reference to -lm387. If you do need my lm387 library, let me know
+and I can package it up for release.
+
+If you want to time the speed of the decoder, use the -t (timetest)
+option.  This executes the decoder in a tight loop repeatedly decoding
+the same packet, allowing you to test just the decoder and not the
+noise generator or screen update routines. Use the UNIX "time" command
+to get your results.
+
+Three code polynomials are supported as described in fano.c. A #define
+statement at the top of fano.c selects the polynomial.
+
+The arguments to the encoder and decoder routines are documented in
+comments in fano.c. Note that the encoded symbols created by encode()
+take on the values 0 and 1, while fano() ordinarily expects 8-bit
+soft-decision receive symbols. The interpretation of these symbols by
+the decoder is completely determined by the metric table.
+
+The metric table generator in gen_met() in metrics.c assumes the
+channel is corrupted by gaussian noise at some specified level, that
+the received symbols from the modem are offset-128 binary with some
+specified amplitude, and that symbol value corresponding to a
+transmitted "1" is larger than for a "0".  Given these parameters it
+builds the table from by computing the log-likelihood function for
+each possible received symbol value.
+
+The performance of a sequential decoder depends critically on the
+accuracy of its metric table. In some cases (e.g., the estimated noise
+level is incorrect) the degradation may be relatively minor. But if
+the table is way off, e.g., if the signal level is so low compared to
+the expected values that a negative metric results even on the correct
+path, then the decoder won't work even if the signal is otherwise
+completely clean.
+
+By generating the appropriate metric table, you could use the decoder
+on some other kind of channel. For example, on a binary (hard
+decision) channel there would only be four table entries corresponding
+to the four channel transition probabilities. And if the channel is
+symmetric (BSC), this 2x2 matrix would also be symmetric.
+
+If you use this decoder in an actual application, you won't need sim.c
+and seqtest.c. Also, instead of including metrics.c to compute the
+metric tables at application run time, you could build a set of metric
+tables into static tables, perhaps for several fixed Eb/N0s. This
+would avoid floating point math in your runtime package.
+
+Any real application will also probably require an interleaver, since
+convolutional coders (especially sequential decoders) are highly
+sensitive to burst errors.
+
+Phil Karn
+
+March 1995: version 1.0
+Original release for BSDI 1.1
+
+August 5, 1995: version 1.1
+Updated for BSDI 2.0
+ - changes in curses/termcap
+Several minor bugs fixed:
+ - fencepost error in cycle count returned by fano()
+ - correct returned value of cumulative metric
+ - clean up computation of noise level for gen_met() in seqtest.c, change
+   convention to conform to viterbi 1.1 package
+
+

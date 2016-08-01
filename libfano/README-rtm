@@ -1,0 +1,12 @@
+# this works on OSX, FreeBSD, and Linux:
+cc -O2 -std=gnu99 fano.c tab.c metrics.c wrapfano.c -shared -fPIC -o libfano.so
+
+import ctypes
+libfano = ctypes.cdll.LoadLibrary("./libfano.so")
+libfano.fano_encode(...)
+
+# this also works on OSX:
+clang -O -dynamiclib -std=gnu99 fano.c tab.c metrics.c wrapfano.c -current_version 1.0 -compatibility_version 1.0 -o libfano.A.dylib
+import ctypes
+libfano = ctypes.cdll.LoadLibrary("libfano.A.dylib")
+libfano.fano_encode(...)
