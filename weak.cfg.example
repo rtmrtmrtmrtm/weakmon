@@ -1,0 +1,9 @@
+[DEFAULT]
+# defaults for all sections, if not overridden.
+#mycall: X1XYZ
+#mygrid: FF99
+
+[wsprmon]
+# you can say "mycall: XXX" here to override the DEFAULT section.
+
+[jt65mon]
