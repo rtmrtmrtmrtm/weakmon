@@ -37,5 +37,7 @@ XXX weak.cfg
 
 You'll need to ensure your computer's clock is correct, perhaps with ntp.
 
-This code includes receive software for wwvb's new phase-shift
-modulation, and for APRS.
+This code gratuitously includes receive software for wwvb's new
+phase-shift modulation, and for APRS.
+
+Robert Morris, AB1HL
