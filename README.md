@@ -15,6 +15,11 @@ The software depends on the following:
   pyaudio
 
 Here's how to install the dependencies on Ubuntu Linux:
+  sudo apt-get install python2.7
+  sudo apt-get install gcc-5
+  sudo apt-get install python-numpy
+  sudo apt-get install python-scipy
+  sudo apt-get install python-pyaudio
 
 If you have a Mac with macports:
   sudo port install python27
