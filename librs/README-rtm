@@ -1,0 +1,14 @@
+Phil Karn's Reed-Solomon code, copied from wsjt-x source.
+
+this works on FreeBSD, Mac OSX, and Linux:
+cc -O2 -DBIGSYM -std=gnu99 *.c -shared -fPIC -o librs.so
+
+you may need to say gcc-4.8 or whatever instead of cc.
+
+you don't need this:
+clang -O -DBIGSYM -dynamiclib -std=gnu99 *.c -current_version 1.0 -compatibility_version 1.0 -o librs.A.dylib
+
+import ctypes
+librs = ctypes.cdll.LoadLibrary("librs.A.dylib")
+librs.rs_decode_(...)
+
