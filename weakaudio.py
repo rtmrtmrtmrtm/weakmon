@@ -157,7 +157,7 @@ class Stream:
     # needed on Linux but not the Mac (which converts as needed).
     def pya_rate(self, rate):
         import pyaudio
-        rates = [ rate, 8000, 11025, 12000, 44100, 48000 ]
+        rates = [ rate, 8000, 11025, 12000, 16000, 22050, 44100, 48000 ]
         for r in rates:
             if r >= rate:
                 ok = False
