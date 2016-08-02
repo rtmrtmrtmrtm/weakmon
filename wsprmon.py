@@ -314,7 +314,7 @@ class WSPRMon:
             # remember the band for this minute, for readall().
             self.minband[min] = band
 
-            if verbose:
+            if self.verbose:
                 sys.stdout.write("band %s ; " % (band))
                 for b in self.bandinfo:
                     sys.stdout.write("%s %.1f, " % (b, self.bandinfo[b]))
