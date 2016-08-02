@@ -16,7 +16,7 @@ import random
 import copy
 import weakcat
 import urllib
-import weakcfg
+import weakutil
 
 b2f = { "80" : 3.592600, "40" : 7.038600, "30" : 10.138700, "20" : 14.095600,
         "17" : 18.104600, "15" : 21.094600, "12" : 24.924600,
@@ -80,8 +80,8 @@ def wchoice_test():
 
 class WSPRMon:
     def __init__(self, incard, cattype, catdev, oneband):
-        self.mycall = weakcfg.get("wsprmon", "mycall")
-        self.mygrid = weakcfg.get("wsprmon", "mygrid")
+        self.mycall = weakutil.cfg("wsprmon", "mycall")
+        self.mygrid = weakutil.cfg("wsprmon", "mygrid")
 
         self.running = True
         self.rate = 12000

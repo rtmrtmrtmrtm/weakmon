@@ -1,12 +1,15 @@
 #
-# read weak.ini
+# random shared support routines for weak*.py
 #
+
+#
+# read weak.ini
 # e.g. weakcfg.get("wsprmon", "mycall") -> None or "W1XXX"
 #
 
 import ConfigParser
 
-def get(program, key):
+def cfg(program, key):
     cfg = ConfigParser.SafeConfigParser()
     cfg.read(['weak-local.cfg', 'weak.cfg'])
 

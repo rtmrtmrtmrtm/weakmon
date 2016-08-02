@@ -392,7 +392,9 @@ class SDRIP:
     seq = ord(buf[2]) | (ord(buf[3]) << 8)
     gap = 0
     if seq != self.nextseq and (seq != 1 or self.nextseq != 65536):
-      sys.stderr.write("seq oops got=%d wanted=%d\n" % (seq, self.nextseq))
+      # one or more packets were lost.
+      # we'll fill the gap with zeros.
+      # sys.stderr.write("seq oops got=%d wanted=%d\n" % (seq, self.nextseq))
       if seq > self.nextseq:
         gap = seq - self.nextseq
     self.nextseq = seq + 1

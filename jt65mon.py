@@ -17,7 +17,7 @@ import copy
 import weakcat
 import weakaudio
 import pskreport
-import weakcfg
+import weakutil
 
 b2f = { "80" : 3.576, "40" : 7.076, "30" : 10.138, "20" : 14.076,
         "17" : 18.102, "15" : 21.076, "12" : 24.917,
@@ -82,8 +82,8 @@ def wchoice_test():
 # listen for CQ, answer.
 class JT65Mon:
     def __init__(self, desc1, desc2, cattype, catdev, oneband):
-        self.mycall = weakcfg.get("jt65mon", "mycall")
-        self.mygrid = weakcfg.get("jt65mon", "mygrid")
+        self.mycall = weakutil.cfg("jt65mon", "mycall")
+        self.mygrid = weakutil.cfg("jt65mon", "mygrid")
 
         self.oneband = oneband
         self.verbose = False
