@@ -6,11 +6,12 @@
 # things go wrong.
 #
 
+import weakutil
 import sys
 import numpy
 import scipy
 import scipy.signal
-from scipy.signal import butter, lfilter, firwin
+from scipy.signal import lfilter
 import time
 import thread
 import threading
@@ -190,12 +191,6 @@ class Stream:
             if len(buf) > 0:
                 print "avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf))
 
-def butter_lowpass(cut, samplerate, order=5):
-  nyq = 0.5 * samplerate
-  cut = cut / nyq
-  b, a = scipy.signal.butter(order, cut, btype='lowpass')
-  return b, a
-
 class SDRIP:
     def __init__(self, ip, rate):
         self.rate = rate
@@ -206,7 +201,7 @@ class SDRIP:
         self.cardlock = thread.allocate_lock()
 
         # prepare down-sampling filter.
-        self.filter = butter_lowpass(0.45 * self.rate, self.sdrrate, 10)
+        self.filter = weakutil.butter_lowpass(0.45 * self.rate, self.sdrrate, 10)
         self.zi = scipy.signal.lfiltic(self.filter[0],
                                        self.filter[1],
                                        [0])

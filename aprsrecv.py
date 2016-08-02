@@ -7,21 +7,13 @@
 import numpy
 import wave
 import weakaudio
+import weakutil
 import time
 import scipy
 import sys
 import os
 import math
-from scipy.signal import butter, lfilter, filtfilt
-
-# make a butterworth bandpass filter
-def butter_bandpass(lowcut, highcut, samplerate, order=5):
-  # http://wiki.scipy.org/Cookbook/ButterworthBandpass
-  nyq = 0.5 * samplerate
-  low = lowcut / nyq
-  high = highcut / nyq
-  b, a = butter(order, [low, high], btype='bandpass')
-  return b, a
+from scipy.signal import lfilter, filtfilt
 
 # http://gordoncluster.wordpress.com/2014/02/13/python-numpy-how-to-generate-moving-averages-efficiently-part-2/
 def smooth (values, window):
@@ -141,15 +133,15 @@ class APRSRecv:
       shift = abs(self.mark - self.space)
       width = 600 # originally 1000
       order = 1 # originally 3
-      self.markfilter = butter_bandpass(self.mark - width/2,
-                                        self.mark + width/2,
-                                        self.rate, order)
+      self.markfilter = weakutil.butter_bandpass(self.mark - width/2,
+                                                 self.mark + width/2,
+                                                 self.rate, order)
       self.markzi = scipy.signal.lfiltic(self.markfilter[0],
                                          self.markfilter[1],
                                          [0])
-      self.spacefilter = butter_bandpass(self.space - width/2,
-                                         self.space + width/2,
-                                         self.rate, order)
+      self.spacefilter = weakutil.butter_bandpass(self.space - width/2,
+                                                  self.space + width/2,
+                                                  self.rate, order)
       self.spacezi = scipy.signal.lfiltic(self.spacefilter[0],
                                           self.spacefilter[1],
                                           [0])
@@ -613,7 +605,7 @@ class APRSRecv:
       self.process()
 
   def opencard(self, desc):
-      self.audio = weakaudio.open(desc, self.rate)
+      self.audio = weakaudio.new(desc, self.rate)
 
   def gocard(self):
     while True:

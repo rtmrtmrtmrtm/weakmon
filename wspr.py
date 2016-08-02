@@ -24,9 +24,10 @@ import subprocess
 import thread
 import re
 import random
-from scipy.signal import butter, lfilter, firwin
+from scipy.signal import lfilter
 import ctypes
 import weakaudio
+import weakutil
 
 #
 # WSPR tuning parameters.
@@ -172,115 +173,6 @@ def probgt(x, mean, std):
     y = 1.0 - normal((x - mean) / std)
     return y
 
-# make a butterworth IIR bandpass filter
-def butter_bandpass(lowcut, highcut, samplerate, order=5):
-  # http://wiki.scipy.org/Cookbook/ButterworthBandpass
-  nyq = 0.5 * samplerate
-  low = lowcut / nyq
-  high = highcut / nyq
-  b, a = butter(order, [low, high], btype='bandpass')
-  return b, a
-
-# FIR bandpass filter
-# http://stackoverflow.com/questions/16301569/bandpass-filter-in-python
-def bandpass_firwin(ntaps, lowcut, highcut, fs, window='hamming'):
-    nyq = 0.5 * fs
-    taps = firwin(ntaps, [lowcut, highcut], nyq=nyq, pass_zero=False,
-                  window=window, scale=False)
-    return taps
-
-def butter_lowpass(cut, samplerate, order=5):
-  nyq = 0.5 * samplerate
-  cut = cut / nyq
-  b, a = scipy.signal.butter(order, cut, btype='lowpass')
-  return b, a
-
-#
-# frequency shift via hilbert transform (like SSB).
-# Lev Givon, https://gist.github.com/lebedov/4428122
-#
-def nextpow2(x):
-    """Return the first integer N such that 2**N >= abs(x)"""
-    return int(numpy.ceil(numpy.log2(numpy.abs(x))))
-
-# f_shift in Hz.
-# dt is 1 / sample rate (e.g. 1.0/11025).
-# frequencies near the low and high ends of the spectrum are
-# reflected, so large shifts will be a problem.
-def freq_shift(x, f_shift, dt):
-    """Shift the specified signal by the specified frequency."""
-
-    # Pad the signal with zeros to prevent the FFT invoked by the transform from
-    # slowing down the computation:
-    N_orig = len(x)
-    N_padded = 2**nextpow2(N_orig)
-    x0 = numpy.append(x, numpy.zeros(N_padded-N_orig, x.dtype))
-
-    t = numpy.arange(0, N_padded)
-    lo = numpy.exp(2j*numpy.pi*f_shift*dt*t)
-    h = scipy.signal.hilbert(x0)*lo
-
-    ret = h[:N_orig].real
-    return ret
-
-def moving_average(a, n):
-    ret = numpy.cumsum(a, dtype=float)
-    ret[n:] = ret[n:] - ret[:-n]
-    return ret[n - 1:] / n
-
-# https://gist.github.com/endolith/255291
-# thank you, endolith.
-def parabolic(f, x):
-    """Quadratic interpolation for estimating the true position of an
-    inter-sample maximum when nearby samples are known.
-   
-    f is a vector and x is an index for that vector.
-   
-    Returns (vx, vy), the coordinates of the vertex of a parabola that goes
-    through point x and its two neighbors.
-   
-    Example:
-    Defining a vector f with a local maximum at index 3 (= 6), find local
-    maximum if points 2, 3, and 4 actually defined a parabola.
-   
-    In [3]: f = [2, 3, 1, 6, 4, 2, 3, 1]
-   
-    In [4]: parabolic(f, argmax(f))
-    Out[4]: (3.2142857142857144, 6.1607142857142856)
-   
-    """
-    xv = 1/2. * (f[x-1] - f[x+1]) / (f[x-1] - 2 * f[x] + f[x+1]) + x
-    yv = f[x] - 1/4. * (f[x-1] - f[x+1]) * (xv - x)
-    return (xv, yv)
-
-fff_cached_window_set = False
-fff_cached_window = None
-
-# https://gist.github.com/endolith/255291
-def freq_from_fft(sig, rate, minf, maxf):
-    global fff_cached_window, fff_cached_window_set
-    if fff_cached_window_set == False:
-      # this uses a bunch of CPU time.
-      fff_cached_window = scipy.signal.blackmanharris(len(sig))
-      fff_cached_window_set = True
-    assert len(sig) == len(fff_cached_window)
-
-    windowed = sig * fff_cached_window
-    f = numpy.fft.rfft(windowed)
-    fa = abs(f)
-
-    # find max between minf and maxf
-    mini = int(minf * len(windowed) / float(rate))
-    maxi = int(maxf * len(windowed) / float(rate))
-    i = numpy.argmax(fa[mini:maxi]) + mini # peak bin
-
-    if fa[i] <= 0.0:
-        return None
-
-    true_i = parabolic(numpy.log(fa), i)[0] # interpolate
-
-    return rate * true_i / float(len(windowed)) # convert to frequency
-
 def bit_reverse(x, width):
     y = 0
     for i in range(0, width):
@@ -321,7 +213,7 @@ class Xform:
         if quarter != 0:
             bin_hz = self.jrate / float(self.jblock)
             freq_off = quarter * (bin_hz / 4.0)
-            block = freq_shift(block, -freq_off, 1.0/self.jrate)
+            block = weakutil.freq_shift(block, -freq_off, 1.0/self.jrate)
         a = numpy.fft.rfft(block)
         a = abs(a)
 
@@ -552,10 +444,10 @@ class WSPR:
     # down-convert by 1200 Hz (i.e. 1400-1600 -> 200->400),
     # and reduce sampling rate to 1500.
     assert self.cardrate == 12000 and self.jrate == 750
-    filter = butter_bandpass(1380, 1620, self.cardrate, 3)
+    filter = weakutil.butter_bandpass(1380, 1620, self.cardrate, 3)
     samples = lfilter(filter[0], filter[1], samples)
     # down-convert from 1400 to 100.
-    samples = freq_shift(samples, -self.downhz, 1.0/self.cardrate)
+    samples = weakutil.freq_shift(samples, -self.downhz, 1.0/self.cardrate)
     # down-sample.
     samples = samples[0::16]
 
@@ -792,7 +684,7 @@ class WSPR:
       for tone in range(0, 4):
           thz = hz + tone*bin_hz
           # +/- 2 works well here.
-          taps = bandpass_firwin(ntaps, thz-goff_hz, thz+goff_hz, self.jrate)
+          taps = weakutil.bandpass_firwin(ntaps, thz-goff_hz, thz+goff_hz, self.jrate)
           # yx = lfilter(taps, 1.0, samples)
           # yx = numpy.convolve(samples, taps, mode='valid')
           # yx = scipy.signal.convolve(samples, taps, mode='valid')
@@ -803,7 +695,7 @@ class WSPR:
 
           # scipy.resample() works but is much too slow.
           #yx = scipy.signal.resample(yx, len(yx) / downfactor)
-          yx = moving_average(yx, downfactor)
+          yx = weakutil.moving_average(yx, downfactor)
           yx = yx[0::downfactor]
 
           tones.append(yx)

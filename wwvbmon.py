@@ -14,6 +14,7 @@ import numpy
 import wave
 import weakaudio
 import weakcat
+import weakutil
 import scipy
 import scipy.signal
 import sys
@@ -23,7 +24,7 @@ import time
 import calendar
 import subprocess
 import thread
-from scipy.signal import butter, lfilter
+from scipy.signal import lfilter
 
 # a[] and b[] are -1/0/1 bit sequences.
 # in how many bits are they identical?
@@ -56,59 +57,11 @@ def xsum(tm, a):
   else:
     return 1
 
-# make a butterworth bandpass filter
-def butter_bandpass(lowcut, highcut, samplerate, order=5):
-  # http://wiki.scipy.org/Cookbook/ButterworthBandpass
-  nyq = 0.5 * samplerate
-  low = lowcut / nyq
-  high = highcut / nyq
-  b, a = butter(order, [low, high], btype='bandpass')
-  return b, a
-
 # http://gordoncluster.wordpress.com/2014/02/13/python-numpy-how-to-generate-moving-averages-efficiently-part-2/
 def smooth(values, window):
   weights = numpy.repeat(1.0, window)/window
   sma = numpy.convolve(values, weights, 'valid')
   return sma
-
-# https://gist.github.com/endolith/255291
-def parabolic(f, x):
-    """Quadratic interpolation for estimating the true position of an
-    inter-sample maximum when nearby samples are known.
-   
-    f is a vector and x is an index for that vector.
-   
-    Returns (vx, vy), the coordinates of the vertex of a parabola that goes
-    through point x and its two neighbors.
-   
-    Example:
-    Defining a vector f with a local maximum at index 3 (= 6), find local
-    maximum if points 2, 3, and 4 actually defined a parabola.
-   
-    In [3]: f = [2, 3, 1, 6, 4, 2, 3, 1]
-   
-    In [4]: parabolic(f, argmax(f))
-    Out[4]: (3.2142857142857144, 6.1607142857142856)
-   
-    """
-    xv = 1/2. * (f[x-1] - f[x+1]) / (f[x-1] - 2 * f[x] + f[x+1]) + x
-    yv = f[x] - 1/4. * (f[x-1] - f[x+1]) * (xv - x)
-    return (xv, yv)
-
-# https://gist.github.com/endolith/255291
-def freq_from_fft(sig, rate, minf, maxf):
-    windowed = sig * scipy.signal.blackmanharris(len(sig))
-    f = numpy.fft.rfft(windowed)
-    fa = abs(f)
-
-    # find max between minf and maxf
-    mini = int(minf * len(windowed) / rate)
-    maxi = int(maxf * len(windowed) / rate)
-    i = numpy.argmax(fa[mini:maxi]) + mini # peak bin
-
-    true_i = parabolic(numpy.log(fa), i)[0] # interpolate
-
-    return rate * true_i / float(len(windowed)) # convert to frequency
 
 class WWVB:
   center = 1000     # 60 khz shifted to here in audio
@@ -201,9 +154,9 @@ class WWVB:
   def gotsamples(self, buf, time_of_last):
     # the band-pass filter.
     if self.filter == None:
-      self.filter = butter_bandpass(self.center - self.filterwidth/2,
-                                    self.center + self.filterwidth/2,
-                                    self.rate, 3)
+      self.filter = weakutil.butter_bandpass(self.center - self.filterwidth/2,
+                                             self.center + self.filterwidth/2,
+                                             self.rate, 3)
       self.zi = scipy.signal.lfiltic(self.filter[0],
                                      self.filter[1],
                                      [0])
@@ -217,7 +170,7 @@ class WWVB:
     self.samples_time = time_of_last - len(self.samples) / float(self.rate)
 
   def guess1(self, a, center, width):
-    fx = freq_from_fft(a, self.rate, center - width/2, center + width/2)
+    fx = weakutil.freq_from_fft(a, self.rate, center - width/2, center + width/2)
     return fx
     
   # guess the frequency of the WWVB carrier.
