@@ -343,7 +343,7 @@ def usage():
                                                       info['name'],
                                                       info['maxInputChannels']))
         if True and info['maxInputChannels'] > 0:
-            rates = [ 8000, 11025, 12000, 44100, 48000 ]
+            rates = [ 11025, 12000, 16000, 22050, 44100, 48000 ]
             for rate in rates:
                 try:
                     ok = pya().is_format_supported(rate,
