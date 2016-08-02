@@ -302,10 +302,13 @@ def usage():
         if True and info['maxInputChannels'] > 0:
             rates = [ 11025, 12000, 44100, 48000 ]
             for rate in rates:
-                ok = pya().is_format_supported(rate,
-                                               input_device=i,
-                                               input_format=pyaudio.paInt16,
-                                               input_channels=1)
+                try:
+                    ok = pya().is_format_supported(rate,
+                                                   input_device=i,
+                                                   input_format=pyaudio.paInt16,
+                                                   input_channels=1)
+                except:
+                    ok = False
                 if ok:
                     sys.stderr.write(" %d" % (rate))
         sys.stderr.write("\n")
