@@ -16,6 +16,7 @@ import thread
 import threading
 import sdrip
 import re
+import os
 
 # desc is "6:0" for a sound card -- sixth card, channel 0 (left).
 def new(desc, rate):
@@ -39,10 +40,15 @@ def pya():
     import pyaudio
     if global_pya == None:
         # suppress Jack and ALSA error messages on Linux.
-        with open("/dev/null", "w") as nullf:
-            sys.stderr = nullf
-            global_pya = pyaudio.PyAudio()
-        sys.stderr = sys.__stderr__
+        nullfd = os.open("/dev/null", 1)
+        oerr = os.dup(2)
+        os.dup2(nullfd, 2)
+
+        global_pya = pyaudio.PyAudio()
+
+        os.dup2(oerr, 2)
+        os.close(oerr)
+        os.close(nullfd)
     return global_pya
 
 class Stream:
