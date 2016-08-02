@@ -63,16 +63,32 @@ a few minutes I might see output like this:
 The 3rd column is the band (20 meters), the 8th is the SNR, and the
 9th is the offset in Hz.
 
-If my radio is a K3 and it's connected to one of my serial ports, I
-can monitor JT65 while switching bands periodically:
+If your radio is a K3, Icom R75, Ten-Tex RX-340, or AOR AR-5000, and
+it's connected by a serial connection, you can monitor JT65 while
+switching bands periodically, e.g:
 
   python2.7 jt65mon.py -in 2:0 -cat k3 /dev/cu.usbserial-FTXVKSG8A
 
-XXX weak.cfg
+For an RFSpace SDR-IP or NetSDR at ip address 10.0.0.2:
 
-You'll need to ensure your computer's clock is correct, perhaps with ntp.
+  python2.7 jt65mon.py -in sdrip:10.0.0.2 -cat sdrip 10.0.0.2
 
-This code gratuitously includes receive software for wwvb's new
-phase-shift modulation, and for APRS.
+You may need to take steps to give yourself permission to use the
+serial device (change its mode or put yourself in the appropriate
+group).
+
+Use the -levels flag to help you adjust the audio level from the
+radio. Peaks of a few thousand are good.
+
+You must set your call sign and grid in order for the software to
+report to wsprnet and pskreporter. Do this by copying weak.cfg.example
+to weak.cfg, un-commenting the mycall and mygrid lines, and changing
+them to your callsign and grid.
+
+Your computer's clock must be correct to within a second for WSPR and
+JT65 to be received; try ntp.
+
+This code repository gratuitously includes receive software for wwvb's
+new phase-shift modulation, and for APRS.
 
 Robert Morris, AB1HL

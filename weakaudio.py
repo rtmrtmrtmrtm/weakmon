@@ -44,7 +44,9 @@ def pya():
     global global_pya
     import pyaudio
     if global_pya == None:
+        sys.stderr.write("BEFORE\n")
         global_pya = pyaudio.PyAudio()
+        sys.stderr.write("AFTER\n")
     return global_pya
 
 class Stream:
@@ -285,12 +287,10 @@ class SDRIP:
 # and associated number (for the "card" argument).
 #
 def usage():
-    import pyaudio
-    pya = pyaudio.PyAudio()
-    ndev = pya.get_device_count()
+    ndev = pya().get_device_count()
     sys.stderr.write("sound card numbers:\n")
     for i in range(0, ndev):
-        info = pya.get_device_info_by_index(i) 
+        info = pya().get_device_info_by_index(i) 
         sys.stderr.write("  %d: %s, channels=%d\n" % (i,
                                                       info['name'],
                                                       info['maxInputChannels']))
