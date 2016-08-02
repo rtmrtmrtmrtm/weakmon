@@ -214,7 +214,6 @@ class SDRIP:
         self.sdr = sdrip.open(ip)
         self.sdr.setrate(self.sdrrate)
         self.sdr.setrun()
-        self.sdr.setfreq(14095600) # XXX
         self.sdr.setgain(-10)
 
         self.th = threading.Thread(target=lambda : self.sdr_thread())

@@ -13,6 +13,7 @@
 import numpy
 import wave
 import weakaudio
+import weakcat
 import scipy
 import scipy.signal
 import sys
@@ -656,8 +657,8 @@ class WWVB:
     return (eccok, m)
 
 def usage():
-  sys.stderr.write("Usage: wwvbmon.py -in CARD:CHAN [-center xxx]\n")
-  sys.stderr.write("       wwvbmon.py -file fff [-center xxx]\n")
+  sys.stderr.write("Usage: wwvbmon.py -in CARD:CHAN [-cat type dev]\n")
+  sys.stderr.write("       wwvbmon.py -file fff\n")
   # list sound cards
   weakaudio.usage()
   sys.exit(1)
@@ -666,6 +667,8 @@ def main():
   filename = None
   incard = None
   center = 1000
+  cattype = None
+  catdev = None
   
   i = 1
   while i < len(sys.argv):
@@ -678,6 +681,10 @@ def main():
     elif sys.argv[i] == "-file":
       filename = sys.argv[i+1]
       i += 2
+    elif sys.argv[i] == "-cat":
+      cattype = sys.argv[i+1]
+      catdev = sys.argv[i+2]
+      i += 3
     else:
       usage()
   
@@ -686,6 +693,10 @@ def main():
     r.center = center
     r.gowav(filename, 0)
   elif filename == None and incard != None:
+    if cattype != None:
+        cat = weakcat.open(cattype, catdev)
+        cat.set_usb_data()
+        cat.setf(0, 59000)
     r = WWVB()
     r.center = center
     r.opencard(incard)
