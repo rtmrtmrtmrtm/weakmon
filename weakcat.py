@@ -26,13 +26,15 @@ def open(type, dev):
     if type == "rx340":
         return RX340(dev)
     if type == "r75":
-        return R75(dev)
+        return R75(dev, 0x5A)
+    if type == "r8500":
+        return R75(dev, 0x4A)
     if type == "ar5000":
         return AR5000(dev)
     if type == "sdrip":
         return SDRIP(dev)
 
-    sys.stderr.write("weakcat: unknown radio type %s\n" % (dev))
+    sys.stderr.write("weakcat: unknown radio type %s\n" % (type))
     sys.exit(1)
 
 # return a list of serial port device names.
@@ -58,7 +60,7 @@ def usage():
     for com in coms:
         sys.stderr.write("  %s\n" % (com))
     sys.stderr.write("radio types: ")
-    for ty in [ "k3", "rx340", "sdrip", "r75", "ar5000" ]:
+    for ty in [ "k3", "rx340", "sdrip", "r75", "r8500", "ar5000" ]:
         sys.stderr.write("%s " % (ty))
     sys.stderr.write("\n")
 
@@ -184,19 +186,22 @@ class SDRIP(object):
         pass
 
 # Icom IC-R75
+# Icom IC-R8500
 class R75(object):
-    def __init__(self, devname):
+    def __init__(self, devname, civ):
+        # ic-r75 CI-V address defaults to 0x5A
+        # ic-r8500 CI-V address defaults to 0x4A
+
+        self.civ = civ
+
         self.port = serial.Serial(devname,
                                   timeout=2,
                                   baudrate=9600,
                                   parity=serial.PARITY_NONE,
                                   bytesize=serial.EIGHTBITS)
         
-        # example -- this sets the radio to AM mode.
-        # self.cmd(0x06, 0x02, "") # AM
-        
     def cmd(self, cmd, subcmd, data):
-        self.port.write("\xfe\xfe\x5a\xe0")
+        self.port.write("\xfe\xfe%c\xe0" % (self.civ))
         self.port.write(chr(cmd))
         if subcmd != None:
             self.port.write(chr(subcmd))

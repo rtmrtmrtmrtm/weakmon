@@ -1,9 +1,8 @@
 # weakmon
-Monitor WSPR and JT65A.
 
 These are command-line Python programs to monitor WSPR and JT65A,
 printing receptions and reporting them to wsprnet and
-pskreporter.info. For a few radios the software understands, it will
+pskreporter. For a few radios the software understands, it will
 switch bands automatically. The software works on Macs, Linux, and
 FreeBSD.
 
