@@ -18,6 +18,9 @@ import weakcat
 import urllib
 import weakutil
 
+# look only at these bands.
+plausible = [ "40", "30", "20" ]
+
 b2f = { "80" : 3.592600, "40" : 7.038600, "30" : 10.138700, "20" : 14.095600,
         "17" : 18.104600, "15" : 21.094600, "12" : 24.924600,
         "10" : 28.124600, "6" : 50.293000 }
@@ -260,8 +263,7 @@ class WSPRMon:
 
     # return a good band on which to listen.
     def rankbands(self):
-        # plausible bands. adjust for season/sunspots.
-        plausible = [ "40", "30", "20" ]
+        global plausible
 
         # are we missing bandinfo for any bands?
         missing = [ ]

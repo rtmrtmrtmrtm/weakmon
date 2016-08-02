@@ -19,6 +19,9 @@ import weakaudio
 import pskreport
 import weakutil
 
+# look only at these bands.
+plausible = [ "40", "30", "20", "17", "15" ]
+
 b2f = { "80" : 3.576, "40" : 7.076, "30" : 10.138, "20" : 14.076,
         "17" : 18.102, "15" : 21.076, "12" : 24.917,
         "10" : 28.076, "6" : 50.276 }
@@ -206,8 +209,7 @@ class JT65Mon:
     # specialized to two receivers. doesn't work for
     # just one receiver.
     def rankbands(self):
-        # just look at these bands.
-        plausible = [ "40", "30", "20", "17", "15" ]
+        global plausible
 
         if len(plausible) == 1:
             return [ plausible[0] ]
