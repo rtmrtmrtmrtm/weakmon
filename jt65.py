@@ -298,7 +298,7 @@ class JT65:
 
   def opencard(self, desc):
       self.cardrate = 11025 # XXX
-      self.audio = weakaudio.open(desc, self.cardrate)
+      self.audio = weakaudio.new(desc, self.cardrate)
 
   def gocard(self):
       samples_time = time.time()

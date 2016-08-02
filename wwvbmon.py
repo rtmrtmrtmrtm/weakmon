@@ -1,4 +1,4 @@
-#!/usr/local/bin/python2.7
+#!/usr/local/bin/python
 
 #
 # WWVB phase-shift keying sound-card demodulator
@@ -181,7 +181,7 @@ class WWVB:
 
   def opencard(self, desc):
       self.rate = 8000
-      self.audio = weakaudio.open(desc, self.rate)
+      self.audio = weakaudio.new(desc, self.rate)
 
   def gocard(self):
       while True:

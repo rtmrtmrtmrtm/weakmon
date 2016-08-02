@@ -463,7 +463,7 @@ class WSPR:
 
   def opencard(self, desc):
       self.cardrate = 12000
-      self.audio = weakaudio.open(desc, self.cardrate)
+      self.audio = weakaudio.new(desc, self.cardrate)
 
   def gocard(self):
       bufbuf = [ ]

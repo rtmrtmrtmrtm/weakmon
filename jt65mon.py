@@ -1,4 +1,4 @@
-#!/usr/local/bin/python2.7
+#!/usr/local/bin/python
 
 #
 # receive JT65.
@@ -352,7 +352,7 @@ def main():
         # adjust level.
         if desc1 == None:
             usage()
-        c = weakaudio.open(desc1, 12000)
+        c = weakaudio.new(desc1, 12000)
         c.levels()
         sys.exit(0)
     

@@ -17,14 +17,8 @@ import threading
 import sdrip
 import re
 
-def butter_lowpass(cut, samplerate, order=5):
-  nyq = 0.5 * samplerate
-  cut = cut / nyq
-  b, a = scipy.signal.butter(order, cut, btype='lowpass')
-  return b, a
-
 # desc is "6:0" for a sound card -- sixth card, channel 0 (left).
-def open(desc, rate):
+def new(desc, rate):
     # sound card?
     m = re.search(r'^([0-9]+):([0-9]+)$', desc)
     if m != None:
@@ -44,9 +38,11 @@ def pya():
     global global_pya
     import pyaudio
     if global_pya == None:
-        sys.stderr.write("BEFORE\n")
-        global_pya = pyaudio.PyAudio()
-        sys.stderr.write("AFTER\n")
+        # suppress Jack and ALSA error messages on Linux.
+        with open("/dev/null", "w") as nullf:
+            sys.stderr = nullf
+            global_pya = pyaudio.PyAudio()
+        sys.stderr = sys.__stderr__
     return global_pya
 
 class Stream:
@@ -186,6 +182,12 @@ class Stream:
             [ buf, junk ] = self.read()
             if len(buf) > 0:
                 print "avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf))
+
+def butter_lowpass(cut, samplerate, order=5):
+  nyq = 0.5 * samplerate
+  cut = cut / nyq
+  b, a = scipy.signal.butter(order, cut, btype='lowpass')
+  return b, a
 
 class SDRIP:
     def __init__(self, ip, rate):

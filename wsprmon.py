@@ -1,4 +1,4 @@
-#!/usr/local/bin/python2.7
+#!/usr/local/bin/python
 
 #
 # WSPR receiver.
@@ -372,7 +372,7 @@ def main():
         # adjust level.
         if incard == None:
             usage()
-        c = weakaudio.open(incard, 12000)
+        c = weakaudio.new(incard, 12000)
         c.levels()
         sys.exit(0)
 
