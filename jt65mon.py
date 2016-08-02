@@ -362,7 +362,7 @@ def main():
         # adjust level.
         if desc1 == None:
             usage()
-        c = weakaudio.new(desc1, 12000)
+        c = weakaudio.new(desc1, 11025)
         c.levels()
         sys.exit(0)
     
