@@ -169,6 +169,7 @@ class SDRIP:
       self.packets_mu = thread.allocate_lock()
 
       th = threading.Thread(target=lambda : self.reader1())
+      th.daemon = True
       th.start()
 
       # move packets from packets[] to the UNIX pipe.

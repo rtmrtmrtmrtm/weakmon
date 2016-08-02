@@ -299,6 +299,7 @@ class JT65Mon:
             r.cardrate = self.rate
             r.opencard(c)
             th = threading.Thread(target=lambda : r.gocard())
+            th.daemon = True
             th.start()
             self.rth.append(th)
             self.msgs_index.append(0)

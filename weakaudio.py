@@ -136,6 +136,7 @@ class Stream:
         self.oss.channels(2)
         assert self.oss.speed(self.rate) == self.rate
         self.th = threading.Thread(target=lambda : self.oss_thread())
+        self.th.daemon = True
         self.th.start()
 
     # dedicating reading thread because oss's buffering seems
@@ -217,6 +218,7 @@ class SDRIP:
         self.sdr.setgain(-10)
 
         self.th = threading.Thread(target=lambda : self.sdr_thread())
+        self.th.daemon = True
         self.th.start()
 
     # returns [ buf, tm ]

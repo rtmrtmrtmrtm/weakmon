@@ -117,12 +117,14 @@ class WSPRMon:
         self.r.cardrate = self.rate
         self.r.opencard(self.incard)
         self.rth = threading.Thread(target=lambda : self.r.gocard())
+        self.rth.daemon = True
         self.rth.start()
 
         if self.mycall == None or self.mygrid == None:
             print "not reporting to wsprnet because no mycall/mygrid in weak.cfg"
         elif True:
             self.nth = threading.Thread(target=lambda : self.gonet())
+            self.nth.daemon = True
             self.nth.start()
             print "reporting to wsprnet as %s at %s." % (self.mycall, self.mygrid)
         else:
