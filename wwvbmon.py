@@ -134,7 +134,8 @@ class WWVB:
     self.process(True)
 
   def opencard(self, desc):
-      self.rate = 8000
+      # self.rate = 8000
+      self.rate = 11025
       self.audio = weakaudio.new(desc, self.rate)
 
   def gocard(self):
@@ -182,7 +183,7 @@ class WWVB:
     
     n = 0
     fx = 0
-    sz = 59*8000
+    sz = 59*self.rate
     while (n+1)*sz <= len(sa) and (n+1)*sz <= 60*self.rate:
       xx = self.guess1(sa[n*sz:(n+1)*sz], 2*self.center, self.searchhz * 2.0)
       fx += xx

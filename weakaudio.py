@@ -57,7 +57,8 @@ class Stream:
         self.use_oss = ("freebsd" in sys.platform)
         self.card = card
         self.chan = chan
-        self.rate = rate
+        self.rate = rate # the sample rate the app wants.
+        self.cardrate = rate # the rate at which the card is running.
 
         self.cardbuf = numpy.array([])
         self.cardtime = time.time() # UNIX time just after last sample in cardbuf
@@ -76,6 +77,18 @@ class Stream:
         buf_time = self.cardtime
         self.cardbuf = numpy.array([])
         self.cardlock.release()
+
+        if self.rate != self.cardrate and len(buf) > 0:
+            # low-pass filter, then down-sample from self.cardrate to self.rate.
+            zi = lfilter(self.filter[0], self.filter[1], buf, zi=self.zi)
+            buf = zi[0]
+            self.zi = zi[1]
+
+            secs =  len(buf)*(1.0/self.cardrate)
+            ox = numpy.arange(0, secs, 1.0 / self.cardrate)
+            ox = ox[0:len(buf)]
+            nx = numpy.arange(0, secs, 1.0 / self.rate)
+            buf = numpy.interp(nx, ox, buf)
 
         return [ buf, buf_time ]
 
@@ -120,15 +133,45 @@ class Stream:
     def pya_open(self):
         import pyaudio
 
+        self.cardrate = self.pya_rate(self.rate)
+
         self.pya_strm = pya().open(format=pyaudio.paInt16,
                                    input_device_index=self.card,
                                    channels=2,
-                                   rate=self.rate,
-                                   frames_per_buffer=self.rate,
+                                   rate=self.cardrate,
+                                   frames_per_buffer=self.cardrate,
                                    stream_callback=self.pya_callback,
                                    output=False,
                                    input=True)
 
+        if self.cardrate != self.rate:
+            sys.stderr.write("weakaudio: down-sampling from %d to %d\n" % (self.cardrate,
+                                                                           self.rate))
+            # prepare a filter to precede resampling.
+            self.filter = weakutil.butter_lowpass(0.45 * self.rate, self.cardrate, 10)
+            self.zi = scipy.signal.lfiltic(self.filter[0],
+                                           self.filter[1],
+                                           [0])
+
+    # find the lowest supported rate >= rate.
+    # needed on Linux but not the Mac (which converts as needed).
+    def pya_rate(self, rate):
+        import pyaudio
+        rates = [ rate, 8000, 11025, 12000, 44100, 48000 ]
+        for r in rates:
+            if r >= rate:
+                ok = False
+                try:
+                    ok = pya().is_format_supported(r,
+                                                   input_device=self.card,
+                                                   input_format=pyaudio.paInt16,
+                                                   input_channels=2)
+                except:
+                    pass
+                if ok:
+                    return r
+        sys.stderr.write("weakaudio: can't find a supported rate >= %d\n" % (rate))
+        sys.exit(1)
 
     def oss_open(self):
         import ossaudiodev
@@ -300,13 +343,13 @@ def usage():
                                                       info['name'],
                                                       info['maxInputChannels']))
         if True and info['maxInputChannels'] > 0:
-            rates = [ 11025, 12000, 44100, 48000 ]
+            rates = [ 8000, 11025, 12000, 44100, 48000 ]
             for rate in rates:
                 try:
                     ok = pya().is_format_supported(rate,
                                                    input_device=i,
                                                    input_format=pyaudio.paInt16,
-                                                   input_channels=1)
+                                                   input_channels=2)
                 except:
                     ok = False
                 if ok:
