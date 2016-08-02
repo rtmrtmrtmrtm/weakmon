@@ -180,7 +180,7 @@ class WSPRMon:
                 url += "tcall=%s&" % (call)
                 url += "tgrid=%s&" % (grid)
                 url += "dbm=%s&" % (dbm)
-                url += "version=&"
+                url += "version=weakmon-0.1&"
                 url += "mode=2"
 
                 try:
