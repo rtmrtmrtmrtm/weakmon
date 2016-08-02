@@ -291,11 +291,22 @@ class SDRIP:
 # and associated number (for the "card" argument).
 #
 def usage():
+    import pyaudio
     ndev = pya().get_device_count()
     sys.stderr.write("sound card numbers:\n")
     for i in range(0, ndev):
         info = pya().get_device_info_by_index(i) 
-        sys.stderr.write("  %d: %s, channels=%d\n" % (i,
+        sys.stderr.write("  %d: %s, channels=%d" % (i,
                                                       info['name'],
                                                       info['maxInputChannels']))
+        if True and info['maxInputChannels'] > 0:
+            rates = [ 11025, 12000, 44100, 48000 ]
+            for rate in rates:
+                ok = pya().is_format_supported(rate,
+                                               input_device=i,
+                                               input_format=pyaudio.paInt16,
+                                               input_channels=1)
+                if ok:
+                    sys.stderr.write(" %d" % (rate))
+        sys.stderr.write("\n")
     sys.stderr.write("  or sdrip:IPADDR\n")
