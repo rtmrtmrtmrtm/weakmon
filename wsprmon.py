@@ -88,6 +88,7 @@ class WSPRMon:
         self.logname = "wspr-log.txt"
         self.bandname = "wspr-band.txt"
         self.jtname = "wspr"
+        self.verbose = False
 
         self.incard = incard
         self.oneband = oneband
@@ -313,10 +314,12 @@ class WSPRMon:
             # remember the band for this minute, for readall().
             self.minband[min] = band
 
-            #sys.stdout.write("%d: band %s, " % (min, band))
-            #for b in self.bandinfo:
-            #    sys.stdout.write("%s %.1f, " % (b, self.bandinfo[b]))
-            #sys.stdout.write("\n")
+            if verbose:
+                sys.stdout.write("band %s ; " % (band))
+                for b in self.bandinfo:
+                    sys.stdout.write("%s %.1f, " % (b, self.bandinfo[b]))
+                sys.stdout.write("\n")
+                sys.stdout.flush()
 
             # make sure we get into the next minute
             time.sleep(5)
@@ -332,7 +335,7 @@ class WSPRMon:
                 
 
 def usage():
-    sys.stderr.write("Usage: wsprmon.py -in CARD:CHAN [-cat type /dev/xxx] [-band band] [-levels]\n")
+    sys.stderr.write("Usage: wsprmon.py -in CARD:CHAN [-cat type /dev/xxx] [-v] [-band band] [-levels]\n")
 
     # list sound cards
     weakaudio.usage()
@@ -348,6 +351,7 @@ def main():
     catdev = None
     oneband = None
     levels = False
+    vflag = False
     
     i = 1
     while i < len(sys.argv):
@@ -363,6 +367,9 @@ def main():
             i += 2
         elif sys.argv[i] == "-levels":
             levels = True
+            i += 1
+        elif sys.argv[i] == "-v":
+            vflag = True
             i += 1
         else:
             usage()
@@ -382,6 +389,7 @@ def main():
     
     if incard != None:
         w = WSPRMon(incard, cattype, catdev, oneband)
+        w.verbose = vflag
         w.start()
         w.go()
         w.close()

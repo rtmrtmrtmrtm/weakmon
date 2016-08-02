@@ -86,7 +86,7 @@ class JT65Mon:
         self.mygrid = weakcfg.get("jt65mon", "mygrid")
 
         self.oneband = oneband
-
+        self.verbose = False
         self.rate = 11025
         self.allname = "jt65-all.txt"
         self.bandname = "jt65-band.txt"
@@ -262,10 +262,15 @@ class JT65Mon:
         # will let us use main antenna on sub-receiver too.
         bands = sorted(bands, key = lambda b : int(b))
 
-        #sys.stdout.write("%.1f bands: %s " % ((self.r[0].second(time.time()), bands)))
-        #for b in self.bandinfo:
-        #    sys.stdout.write("%s %.1f, " % (b, self.bandinfo[b]))
-        #sys.stdout.write("\n")
+        if self.verbose:
+            sys.stdout.write("band ")
+            for b in bands:
+                sys.stdout.write("%s " % (b))
+            sys.stdout.write("; ")
+            for b in self.bandinfo:
+                sys.stdout.write("%s %.1f, " % (b, self.bandinfo[b]))
+            sys.stdout.write("\n")
+            sys.stdout.flush()
 
         if self.cat != None:
             for i in range(0, len(self.r)):
@@ -308,7 +313,7 @@ class JT65Mon:
             th.join()
 
 def usage():
-    sys.stderr.write("Usage: jt65mon.py -in CARD:CHAN -cat type dev [-band BAND] [-levels]\n")
+    sys.stderr.write("Usage: jt65mon.py -in CARD:CHAN -cat type dev [-v] [-band BAND] [-levels]\n")
 
     # list sound cards
     weakaudio.usage()
@@ -325,6 +330,7 @@ def main():
     catdev = None
     levels = False
     oneband = None
+    vflag = False
     
     i = 1
     while i < len(sys.argv):
@@ -344,6 +350,9 @@ def main():
         elif sys.argv[i] == "-band":
             oneband = sys.argv[i+1]
             i += 2
+        elif sys.argv[i] == "-v":
+            vflag = True
+            i += 1
         else:
             usage()
 
@@ -364,6 +373,7 @@ def main():
         usage()
 
     jt65mon = JT65Mon(desc1, desc2, cattype, catdev, oneband)
+    jt65mon.verbose = vflag
     jt65mon.go()
     jt65mon.close()
 
