@@ -33,7 +33,7 @@ from ctypes import c_int, byref, cdll
 #
 # performance tuning parameters.
 #
-budget = 6     # CPU seconds (6 for benchmarks, 9 for real).
+budget = 9     # CPU seconds (6 for benchmarks, 9 for real).
 noffs = 4      # look for sync every jblock/noffs (4)
 off_scores = 4 # consider off_scores*noffs starts per freq bin (3, 4)
 pass1_frac = 0.9 # fraction budget to spend before subtracting (0.5, 0.9)
