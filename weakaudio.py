@@ -308,8 +308,8 @@ class SDRIQ:
 
         self.sdr = sdriq.open(ip)
         self.sdr.setrate(self.sdrrate)
-        self.sdr.setgain(-20)
-        self.sdr.setifgain(12)
+        self.sdr.setgain(-10)
+        self.sdr.setifgain(12) # I don't know how to set this!
         self.sdr.setrun(True)
 
         self.th = threading.Thread(target=lambda : self.sdr_thread())
@@ -342,6 +342,12 @@ class SDRIQ:
         ox = ox[0:len(buf)]
         nx = numpy.arange(0, secs, 1.0 / self.rate)
         buf = numpy.interp(nx, ox, buf)
+
+        # no matter how I set its RF or IF gain,
+        # the SDR-IP generates peaks around 145000,
+        # or I and Q values of 65535. cut this down
+        # so application doesn't think the SDR-IP is clipping.
+        buf = buf / 10.0
 
         return [ buf, buf_time ]
 

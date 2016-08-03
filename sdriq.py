@@ -5,12 +5,12 @@
 # uses the kernel USB FTDI driver, which shows up as a serial device.
 # may need SDR-IQ firmware >= 1.07.
 #
-# only tested on a Mac
+# works on Linux; basically works on the Mac but sometimes breaks.
 #
 # Example:
 #   sdr = sdriq.open("/dev/cu.usbserial-142")
 #   sdr.setrate(8138)
-#   sdr.setgain(-20)
+#   sdr.setgain(-10)
 #   sdr.setifgain(12)
 #   sdr.setrun(True)
 #   while True:
@@ -118,17 +118,23 @@ class SDRIQ:
             [ mtype, mitem, data ] = self.readmsg()
             if mtype == 4:
                 # data -- I/Q samples
+                if len(data) != 8192:
+                    sys.stderr.write("sdriq: len(data) %d != 8192\n" % (len(data)))
                 self.data_mu.acquire()
                 self.data.append(data)
                 self.data_mu.release()
+            elif mtype > 4:
+                sys.stderr.write("sdriq: unexpected type %d len=%d\n" % (mtype,
+                                                                         len(data)))
             elif mtype == 0:
                 # reply to a set/get control request.
                 self.ctl_mu.acquire()
                 self.ctl.append([ mtype, mitem, data ])
                 self.ctl_mu.release()
             else:
-                #sys.stderr.write("sdriq: unexpected data type=%d len=%d\n" % (mtype,
-                #                                                              len(data)))
+                sys.stderr.write("sdriq: unexpected type=%d item=%d len=%d\n" % (mtype,
+                                                                                 mitem,
+                                                                                 len(data)))
                 pass
 
     # absorb new input, if any, into self.reader_buf[]
