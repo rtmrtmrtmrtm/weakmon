@@ -10,6 +10,8 @@
 #
 # uses Phil Karn's Reed-Solomon software.
 #
+# Robert Morris, AB1HL
+#
 
 import numpy
 import wave

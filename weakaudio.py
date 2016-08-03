@@ -16,6 +16,7 @@ import time
 import thread
 import threading
 import sdrip
+import sdriq
 import re
 import os
 
@@ -29,6 +30,10 @@ def new(desc, rate):
     m = re.search(r'^sdrip:([0-9.]+)$', desc)
     if m != None:
         return SDRIP(m.group(1), rate)
+
+    m = re.search(r'^sdriq:(/.+)$', desc)
+    if m != None:
+        return SDRIQ(m.group(1), rate)
 
     sys.stderr.write("weakaudio: unknown desc %s" % (desc))
     sys.exit(1)
@@ -204,28 +209,6 @@ class Stream:
             self.cardtime += len(got) / float(self.rate)
             self.cardlock.release()
 
-    # for testing, compare card's claimed rate with UNIX time rate.
-    def calibrate(self):
-        print "weakaudio calibrate()"
-        while True:
-            [ buf, junk ] = self.read()
-            if len(buf) > 0:
-                break
-            time.sleep(0.01)
-        unix0 = time.time()
-        samples = 0
-        lastprint = 0
-        while True:
-            while True:
-                [ buf, junk ] = self.read()
-                if len(buf) > 0:
-                    break
-                time.sleep(0.01)
-            samples += len(buf)
-            if time.time() - lastprint >= 1:
-                print "%.6f" % (samples / (time.time() - unix0))
-                lastprint = time.time()
-
     # print levels, to help me adjust volume control.
     def levels(self):
         while True:
@@ -299,27 +282,81 @@ class SDRIP:
             self.cardtime += len(got) / float(self.sdrrate)
             self.cardlock.release()
 
-    # for testing, compare card's claimed rate with UNIX time rate.
-    def calibrate(self):
-        print "weakaudio calibrate()"
+    # print levels, to help me adjust volume control.
+    def levels(self):
         while True:
+            time.sleep(1)
             [ buf, junk ] = self.read()
             if len(buf) > 0:
-                break
-            time.sleep(0.01)
-        unix0 = time.time()
-        samples = 0
-        lastprint = 0
+                print "avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf))
+
+class SDRIQ:
+    def __init__(self, ip, rate):
+        self.rate = rate
+        self.sdrrate = 8138
+
+        self.bufbuf = [ ]
+        self.cardtime = time.time() # UNIX time just after last sample in bufbuf
+        self.cardlock = thread.allocate_lock()
+
+        if self.rate < self.sdrrate:
+            # prepare down-sampling filter.
+            self.filter = weakutil.butter_lowpass(0.45 * self.rate, self.sdrrate, 10)
+            self.zi = scipy.signal.lfiltic(self.filter[0],
+                                           self.filter[1],
+                                           [0])
+
+        self.sdr = sdriq.open(ip)
+        self.sdr.setrate(self.sdrrate)
+        self.sdr.setgain(-20)
+        self.sdr.setifgain(12)
+        self.sdr.setrun(True)
+
+        self.th = threading.Thread(target=lambda : self.sdr_thread())
+        self.th.daemon = True
+        self.th.start()
+
+    # returns [ buf, tm ]
+    # where tm is UNIX seconds of the last sample.
+    def read(self):
+        self.cardlock.acquire()
+        bufbuf = self.bufbuf
+        buf_time = self.cardtime
+        self.bufbuf = [ ]
+        self.cardlock.release()
+
+        if len(bufbuf) == 0:
+            return [ numpy.array([]), buf_time ]
+
+        buf = numpy.concatenate(bufbuf)
+        buf = sdrip.iq2usb(buf) # I/Q -> USB
+
+        if self.rate < self.sdrrate:
+            # low-pass filter, then down-sample from self.sdrrate to self.rate.
+            zi = lfilter(self.filter[0], self.filter[1], buf, zi=self.zi)
+            buf = zi[0]
+            self.zi = zi[1]
+            
+        secs =  len(buf)*(1.0/self.sdrrate)
+        ox = numpy.arange(0, secs, 1.0 / self.sdrrate)
+        ox = ox[0:len(buf)]
+        nx = numpy.arange(0, secs, 1.0 / self.rate)
+        buf = numpy.interp(nx, ox, buf)
+
+        return [ buf, buf_time ]
+
+    def sdr_thread(self):
+        self.cardtime = time.time()
+
         while True:
-            while True:
-                [ buf, junk ] = self.read()
-                if len(buf) > 0:
-                    break
-                time.sleep(0.01)
-            samples += len(buf)
-            if time.time() - lastprint >= 1:
-                print "%.6f" % (samples / (time.time() - unix0))
-                lastprint = time.time()
+            # read i/q blocks, to reduce CPU time in
+            # this thread, which drains the UDP socket.
+            got = self.sdr.readiq()
+
+            self.cardlock.acquire()
+            self.bufbuf.append(got)
+            self.cardtime += len(got) / float(self.sdrrate)
+            self.cardlock.release()
 
     # print levels, to help me adjust volume control.
     def levels(self):
@@ -356,3 +393,4 @@ def usage():
                     sys.stderr.write(" %d" % (rate))
         sys.stderr.write("\n")
     sys.stderr.write("  or sdrip:IPADDR\n")
+    sys.stderr.write("  or sdriq:/dev/SERIALPORT\n")

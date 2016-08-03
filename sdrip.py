@@ -1,6 +1,17 @@
 #
 # Control an RFSpace SDR-IP (and probably a NetSDR).
 #
+# Example:
+#   sdr = sdrip.open("192.168.3.125")
+#   sdr.setrate(32000)
+#   sdr.setgain(-10)
+#   sdr.setrun()
+#   while True:
+#     buf = sdr.readiq()
+#     OR buf = sdr.readusb()
+#
+# Robert Morris, AB1HL
+#
 
 import socket
 import sys

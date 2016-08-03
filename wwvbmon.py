@@ -9,6 +9,8 @@
 # my setup uses a Z10024A low-pass filter to keep out AM broadcast.
 # an outdoor dipole or indoor W1VLF antenna work well.
 #
+# Robert Morris, AB1HL
+#
 
 import numpy
 import wave

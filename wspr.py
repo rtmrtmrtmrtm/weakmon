@@ -9,6 +9,8 @@
 #
 # uses Phil Karn's Fano convolutional decoder.
 #
+# Robert Morris, AB1HL
+#
 
 import numpy
 import wave

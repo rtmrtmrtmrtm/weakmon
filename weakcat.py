@@ -19,6 +19,7 @@ import re
 import time
 
 import sdrip
+import sdriq
 
 def open(type, dev):
     if type == "k3":
@@ -33,6 +34,8 @@ def open(type, dev):
         return AR5000(dev)
     if type == "sdrip":
         return SDRIP(dev)
+    if type == "sdriq":
+        return SDRIQ(dev)
 
     sys.stderr.write("weakcat: unknown radio type %s\n" % (type))
     sys.exit(1)
@@ -60,7 +63,7 @@ def usage():
     for com in coms:
         sys.stderr.write("  %s\n" % (com))
     sys.stderr.write("radio types: ")
-    for ty in [ "k3", "rx340", "sdrip", "r75", "r8500", "ar5000" ]:
+    for ty in [ "k3", "rx340", "sdrip", "sdriq", "r75", "r8500", "ar5000" ]:
         sys.stderr.write("%s " % (ty))
     sys.stderr.write("\n")
 
@@ -172,6 +175,22 @@ class RX340(object):
 class SDRIP(object):
     def __init__(self, devname):
         self.sdr = sdrip.open(devname) # devname is the IP address
+  
+    # send a no-op command and wait for the response.
+    def sync(self):
+        pass
+
+    # set the frequeny in Hz for vfo=0 (A) or vfo=1 (B / sub-receiver).
+    # does not wait.
+    def setf(self, vfo, fr):
+        self.sdr.setfreq(fr)
+
+    def set_usb_data(self):
+        pass
+
+class SDRIQ(object):
+    def __init__(self, devname):
+        self.sdr = sdriq.open(devname) # devname is /dev/SERIALPORT
   
     # send a no-op command and wait for the response.
     def sync(self):

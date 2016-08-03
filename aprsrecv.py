@@ -1,7 +1,9 @@
 #!/usr/local/bin/python
 
 #
-# APRSRecv
+# sound-card APRS decoder
+#
+# Robert Morris, AB1HL
 #
 
 import numpy
