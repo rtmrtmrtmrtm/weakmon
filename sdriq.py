@@ -28,6 +28,29 @@ import threading
 import numpy
 import select
 
+# the SDR-IQ needs to be told how fast its sampling clock
+# actually runs, so it can set its down-sampling frequency
+# accurately. if frequencies seem a bit high, that means
+# the SDR-IQ is sampling to slow, so ppm here should be set
+# to a negative values (it's -23 for my SDR-IQ). if signals
+# are appearing at too-low frequencies, the SDR-IQ is sampling
+# too fast, and ppm should be set to a positive value.
+# ppm is parts per million, so if a 10 mhz signal shows up
+# at 10.000010, the SDR-IQ is sampling 1 PPM too slow
+# and ppm should be set to -1.
+ppm = -23
+
+# correspondence between rate codes and I/Q sample rate
+rates = [
+    [ 0x00001FCA, 8138 ],
+    [ 0x00003F94, 16276 ],
+    [ 0x000093A1, 37793 ],
+    [ 0x0000D904, 55556 ],
+    [ 0x0001B207, 111111 ],
+    [ 0x00026C0A, 158730 ],
+    [ 0x0002FDEE, 196078 ],
+]
+
 def x16(x):
   return [ x & 0xff, (x >> 8) & 0xff ]
 
@@ -49,17 +72,6 @@ def hx(s):
   for i in range(0, len(s)):
     buf += "%02x " % (s[i])
   return buf
-
-# correspondence between rate codes and I/Q sample rate
-rates = [
-    [ 0x00001FCA, 8138 ],
-    [ 0x00003F94, 16276 ],
-    [ 0x000093A1, 37793 ],
-    [ 0x0000D904, 55556 ],
-    [ 0x0001B207, 111111 ],
-    [ 0x00026C0A, 158730 ],
-    [ 0x0002FDEE, 196078 ],
-]
 
 #
 # if already connected, return existing SDRIQ,
@@ -111,6 +123,12 @@ class SDRIQ:
         self.th.start()
 
         self.port.write("\x04\x20\x01\x00") # get target name, basically a no-op
+
+        # tell the SDR-IQ what its actual sampling frequency is.
+        # this does not change the sampling frequency.
+        nclock = int(66666667 * (1.0 + ppm/1000000.0))
+        self.setinputrate(nclock)
+        sys.stderr.write("sdriq: DDC frequency set to %d\n" % (self.getinputrate()))
 
     def reader(self):
         while True:
@@ -326,7 +344,7 @@ class SDRIQ:
         data += x32(code)
         self.setitem(0x00B8, data)
 
-    # always more or less 66 mHz.
+    # always more or less 66666667 Hz.
     def getinputrate(self):
         x = self.getitem(0x00B0, [ 0 ] )
         x = x[1:]
@@ -335,6 +353,13 @@ class SDRIQ:
         z += x[2]*256*256
         z += x[3]*256*256*256
         return z
+
+    # set to something very near 66666667 Hz to correct small
+    # inaccuracies in the SDR-IQ's clock.
+    def setinputrate(self, hz):
+        data = [ 0 ]
+        data += x32(hz)
+        self.setitem(0x00B0, data)
     
     # ask the SDR-IQ to start generating samples.
     def setrun(self, run):
@@ -378,36 +403,3 @@ class SDRIQ:
         ret = ii + 1j*qq
 
         return ret
-
-def main():
-    iq = SDRIQ()
-    iq.setrun(False)
-    iq.setfreq(3330000)
-    print "frequency %f" % (iq.getfreq()/1000000.0)
-    
-    #iq.setrate(196078)
-    iq.setrate(8138)
-    print "rate %d" % (iq.getrate())
-    
-    print iq.setgain(-10)
-    print "rf gain %d" % (iq.getgain())
-    
-    # only 0, 6, 12, 18, and 24 dB.
-    print iq.setifgain(6)
-    print "if gain %d" % (iq.getifgain())
-    
-    print "input rate %d" % (iq.getinputrate())
-    
-    iq.setrun(True)
-    
-    t0 = time.time()
-    n = 0
-    for iters in range(0, 20):
-        buf = iq.readiq()
-        print abs(buf[0:3])
-        n += len(buf)
-    t1 = time.time()
-    
-    iq.setrun(False)
-    
-    print "%d in %.1f, %.0f/sec" % (n, t1-t0, n/(t1-t0))
