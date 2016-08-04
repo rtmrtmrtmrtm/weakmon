@@ -1,22 +1,23 @@
 # weakmon
 
 These are command-line Python programs to monitor WSPR and JT65A,
-printing receptions and reporting them to wsprnet and
-pskreporter. For a few radios the software understands, it will
-switch bands automatically. The software works on Macs, Linux, and
-FreeBSD.
+printing receptions and reporting them to wsprnet and pskreporter. For
+the radios the software understands, it will switch bands
+automatically. The software works on Macs, Linux, and FreeBSD.
 
 I've borrowed code and ideas from Joe Taylor, Phil Karn, and others
 identified in comments in the code.
 
 The software depends on a few packages. Here's how to install them
 on Ubuntu Linux:
+```
   sudo apt-get install python2.7
   sudo apt-get install gcc-5
   sudo apt-get install python-numpy
   sudo apt-get install python-scipy
   sudo apt-get install python-pyaudio
   sudo apt-get install python-serial
+```
 
 If you have a Mac with macports:
   sudo port install python27
