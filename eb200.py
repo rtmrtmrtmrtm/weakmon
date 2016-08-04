@@ -57,6 +57,9 @@ class EB200:
         self.bufs = [ ]
         self.bufs_mu = thread.allocate_lock()
 
+        # last sequence number seen from EB200 in a UDP packet.
+        self.seq = None
+
         # separate reader thread to keep reading the UDP
         # socket so it doesn't overflow.
         self.th = threading.Thread(target=lambda : self.reader())
@@ -74,6 +77,12 @@ class EB200:
             sys.stderr.write("eb200: bad magic\n")
             return
         seq = h[3]
+
+        if self.seq != None:
+            if seq != self.seq + 1 and seq > self.seq:
+                sys.stderr.write("eb200: missed %d packets\n" % (seq - self.seq))
+                # XXX should fake the right number of samples.
+        self.seq = seq
 
         # GenericAttribute
         ga = struct.unpack(">HH", buf[16:20])
