@@ -1239,45 +1239,6 @@ def usage():
   weakaudio.usage()
   sys.exit(1)
 
-# write a mono file
-def writewav1(left, filename, rate):
-  ww = wave.open(filename, 'w')
-  ww.setnchannels(1)
-  ww.setsampwidth(2)
-  ww.setframerate(rate)
-
-  # convert to 16-bit ints
-  a = numpy.array(left, dtype=numpy.int16)
-
-  # convert to python raw byte string
-  a = a.tostring()
-
-  ww.writeframes(a)
-
-  ww.close()
-
-# write a stereo file
-def writewav2(left, right, filename, rate):
-  ww = wave.open(filename, 'w')
-  ww.setnchannels(2)
-  ww.setsampwidth(2)
-  ww.setframerate(rate)
-
-  # interleave.
-  a = numpy.zeros(len(left) + len(right))
-  a[0::2] = left
-  a[1::2] = right
-
-  # convert to 16-bit ints
-  a = numpy.array(a, dtype=numpy.int16)
-
-  # convert to python raw byte string
-  a = a.tostring()
-
-  ww.writeframes(a)
-
-  ww.close()
-
 if False:
   r = JT65()
   print r.unpack([61, 37, 30, 28, 9, 27, 61, 58, 26, 3, 49, 16]) # G3LTF DL9KR JO40

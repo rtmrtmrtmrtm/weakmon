@@ -303,11 +303,12 @@ class WSPRMon:
                 time.sleep(0.2)
 
             # choose a band.
-            if self.cat != None:
-                band = self.rankbands()
-                self.cat.setf(0, int(b2f[band] * 1000000.0))
-            else:
+            if self.oneband != None:
                 band = self.oneband
+            else:
+                band = self.rankbands()
+            if self.cat != None:
+                self.cat.setf(0, int(b2f[band] * 1000000.0))
 
             now = time.time()
             if self.r.second(now) < 5:

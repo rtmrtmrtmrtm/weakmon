@@ -20,6 +20,7 @@ import time
 
 import sdrip
 import sdriq
+import eb200
 
 def open(type, dev):
     if type == "k3":
@@ -36,6 +37,8 @@ def open(type, dev):
         return SDRIP(dev)
     if type == "sdriq":
         return SDRIQ(dev)
+    if type == "eb200":
+        return EB200(dev)
 
     sys.stderr.write("weakcat: unknown radio type %s\n" % (type))
     sys.exit(1)
@@ -63,7 +66,7 @@ def usage():
     for com in coms:
         sys.stderr.write("  %s\n" % (com))
     sys.stderr.write("radio types: ")
-    for ty in [ "k3", "rx340", "sdrip", "sdriq", "r75", "r8500", "ar5000" ]:
+    for ty in [ "k3", "rx340", "sdrip", "sdriq", "r75", "r8500", "ar5000", "eb200" ]:
         sys.stderr.write("%s " % (ty))
     sys.stderr.write("\n")
 
@@ -285,3 +288,20 @@ class AR5000(object):
         self.cmd("MD3") # USB
         self.cmd("BW1") # 3 khz
         self.cmd("AC0") # fast AGC
+
+
+class EB200(object):
+    def __init__(self, devname):
+        self.eb200 = eb200.open(devname) # devname is the IP address
+  
+    # send a no-op command and wait for the response.
+    def sync(self):
+        pass
+
+    # set the frequeny in Hz for vfo=0 (A) or vfo=1 (B / sub-receiver).
+    # does not wait.
+    def setf(self, vfo, fr):
+        self.eb200.setfreq(fr)
+
+    def set_usb_data(self):
+        self.eb200.set_usb_data()

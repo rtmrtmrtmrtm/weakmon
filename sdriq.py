@@ -61,13 +61,12 @@ rates = [
     [ 0x0002FDEE, 196078 ],
 ]
 
-mu = thread.allocate_lock()
-
 #
 # if already connected, return existing SDRIQ,
 # otherwise a new one.
 #
 sdriqs = { }
+mu = thread.allocate_lock()
 def open(dev):
     global sdriqs, mu
     mu.acquire()
@@ -131,6 +130,9 @@ class SDRIQ:
                 self.ctl_mu.acquire()
                 self.ctl.append([ mtype, mitem, data ])
                 self.ctl_mu.release()
+            elif mtype == 1 and mitem == 5:
+                # probably A/D overload.
+                pass
             else:
                 sys.stderr.write("sdriq: unexpected type=%d item=%d len=%d\n" % (mtype,
                                                                                  mitem,

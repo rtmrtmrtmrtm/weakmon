@@ -87,7 +87,10 @@ them to your callsign and grid.
 Your computer's clock must be correct to within a second for WSPR and
 JT65 to be received; try ntp.
 
-This code repository gratuitously includes receive software for wwvb's
-new phase-shift modulation, and for APRS.
+I've included receive software for WWVB's phase-shift modulation, and
+for APRS.
+
+This software surely contains errors, particularly since I'm no expert
+at signal processing. I'd appreciate fixes for any bugs you discover.
 
 Robert Morris, AB1HL

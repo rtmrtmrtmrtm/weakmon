@@ -6,7 +6,6 @@
 # things go wrong.
 #
 
-import weakutil
 import sys
 import numpy
 import scipy
@@ -15,10 +14,14 @@ from scipy.signal import lfilter
 import time
 import thread
 import threading
-import sdrip
-import sdriq
 import re
 import os
+
+import weakutil
+
+import sdrip
+import sdriq
+import eb200
 
 # desc is "6:0" for a sound card -- sixth card, channel 0 (left).
 def new(desc, rate):
@@ -34,6 +37,10 @@ def new(desc, rate):
     m = re.search(r'^sdriq:(/.+)$', desc)
     if m != None:
         return SDRIQ(m.group(1), rate)
+
+    m = re.search(r'^eb200:([0-9.]+)$', desc)
+    if m != None:
+        return EB200(m.group(1), rate)
 
     sys.stderr.write("weakaudio: unknown desc %s" % (desc))
     sys.exit(1)
@@ -372,6 +379,59 @@ class SDRIQ:
             if len(buf) > 0:
                 print "avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf))
 
+class EB200:
+    def __init__(self, ip, rate):
+        self.rate = rate
+
+        self.time_mu = thread.allocate_lock()
+        self.cardtime = time.time() # UNIX time just after last sample in bufbuf
+
+        self.sdr = eb200.open(ip)
+        self.sdrrate = self.sdr.getrate()
+
+        if self.sdrrate > self.rate:
+            # prepare down-sampling filter.
+            self.filter = weakutil.butter_lowpass(0.45 * self.rate, self.sdrrate, 10)
+            self.zi = scipy.signal.lfiltic(self.filter[0],
+                                           self.filter[1],
+                                           [0])
+
+
+    # returns [ buf, tm ]
+    # where tm is UNIX seconds of the last sample.
+    # blocks until input is available.
+    def read(self):
+        buf = self.sdr.readaudio()
+
+        self.time_mu.acquire()
+        self.cardtime += len(buf) / float(self.sdrrate)
+        buf_time = self.cardtime
+        self.time_mu.release()
+
+        if self.sdrrate > self.rate:
+            # low-pass filter.
+            zi = lfilter(self.filter[0], self.filter[1], buf, zi=self.zi)
+            buf = zi[0]
+            self.zi = zi[1]
+
+        if self.sdrrate != self.rate:
+            # change sample rate.
+            secs =  len(buf)*(1.0/self.sdrrate)
+            ox = numpy.arange(0, secs, 1.0 / self.sdrrate)
+            ox = ox[0:len(buf)]
+            nx = numpy.arange(0, secs, 1.0 / self.rate)
+            buf = numpy.interp(nx, ox, buf)
+
+        return [ buf, buf_time ]
+
+    # print levels, to help me adjust volume control.
+    def levels(self):
+        while True:
+            time.sleep(1)
+            [ buf, junk ] = self.read()
+            if len(buf) > 0:
+                print "avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf))
+
 #
 # for Usage(), print out a list of audio cards
 # and associated number (for the "card" argument).
@@ -400,3 +460,4 @@ def usage():
         sys.stderr.write("\n")
     sys.stderr.write("  or sdrip:IPADDR\n")
     sys.stderr.write("  or sdriq:/dev/SERIALPORT\n")
+    sys.stderr.write("  or eb200:IPADDR\n")
