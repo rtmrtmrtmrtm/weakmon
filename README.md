@@ -61,7 +61,7 @@ If I hook my radio's audio output up to my iMic USB sound card input,
 and set the radio frequency to 14.076, I can monitor jt65 like this:
 
 ```
-  python2.7 jt65mon.py -in 2:0 -band 20
+  % python2.7 jt65mon.py -in 2:0 -band 20
 ```
 
 The "-in 2:0" means the left (0) channel of sound card number 2. After
@@ -75,23 +75,23 @@ a few minutes I might see output like this:
 The 3rd column is the band (20 meters), the 8th is the SNR, and the
 9th is the offset in Hz.
 
-If your radio is a K3, Icom R75, Ten-Tex RX-340, or AOR AR-5000, and
-it's connected by a serial connection, you can monitor JT65 while
+If your radio is a K3, Icom R75 or R8500, Ten-Tex RX-340, or AOR AR-5000,
+and it's connected by a serial connection, you can monitor JT65 while
 switching bands periodically, e.g:
 
 ```
-  python2.7 jt65mon.py -in 2:0 -cat k3 /dev/cu.usbserial-FTXVKSG8A
-```
-
-For an RFSpace SDR-IP or NetSDR at ip address 10.0.0.2:
-
-```
-  python2.7 jt65mon.py -in sdrip:10.0.0.2 -cat sdrip 10.0.0.2
+  % python2.7 jt65mon.py -in 2:0 -cat k3 /dev/cu.usbserial-FTXVKSG8A
 ```
 
 You may need to take steps to give yourself permission to use the
 serial device (change its mode or put yourself in the appropriate
 group).
+
+For an RFSpace SDR-IP or NetSDR at IP address 10.0.0.2:
+
+```
+  % python2.7 jt65mon.py -in sdrip:10.0.0.2 -cat sdrip 10.0.0.2
+```
 
 Use the -levels flag to help you adjust the audio level from the
 radio. Peaks of a few thousand are good.
