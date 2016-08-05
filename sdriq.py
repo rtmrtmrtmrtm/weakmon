@@ -116,6 +116,19 @@ class SDRIQ:
         # used only by reader() thread.
         self.reader_buf = [ ]
 
+        # fork() a sub-process to read and buffer USB input,
+        # since the Python thread scheduler doesn't run us often enough if
+        # WSPR is compute-bound in numpy for tens of seconds.
+        r, w = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            os.close(r)
+            self.child(w)
+            os._exit(0)
+        else:
+            self.pipe = r
+            os.close(w)
+
         # only one thread reads the serial port, appending
         # arriving control and data messages to ctl[] and data[].
         self.th = threading.Thread(target=lambda : self.reader())
@@ -129,6 +142,53 @@ class SDRIQ:
         nclock = int(66666667 * (1.0 + ppm/1000000.0))
         self.setinputrate(nclock)
         sys.stderr.write("sdriq: DDC frequency set to %d\n" % (self.getinputrate()))
+
+    def child1(self):
+        while True:
+            # do our own read and buffer to avoid serial's internal
+            # buffering and desire to return exactly the asked-for
+            # number of bytes.
+            timeout = 10
+            select.select([self.port.fileno()], [], [], timeout)
+            buf = os.read(self.port.fileno(), 8194)
+            if len(buf) > 0:
+                self.child_bufs_mu.acquire()
+                self.child_bufs.append(buf)
+                self.child_bufs_mu.release()
+
+    # read USB data in a separate process, buffer it,
+    # and send it on the pipe w.
+    def child(self, w):
+        ww = os.fdopen(w, 'wb')
+
+        # spawn a thread that just keeps reading from USB
+        # and appending buffers of bytes to child_bufs[].
+
+        self.child_bufs = [ ]
+        self.child_bufs_mu = thread.allocate_lock()
+
+        th = threading.Thread(target=lambda : self.child1())
+        th.daemon = True
+        th.start()
+
+        # copy buffers from child_bufs[] to the UNIX pipe.
+        # the pipe write() calls may block, but it's OK because
+        # the child1() thread keeps draining the UDP socket.
+        while True:
+            self.child_bufs_mu.acquire()
+            bufs = self.child_bufs
+            self.child_bufs = [ ]
+            self.child_bufs_mu.release()
+
+            if len(bufs) < 1:
+                time.sleep(0.1)
+
+            for buf in bufs:
+                try:
+                    ww.write(buf)
+                except:
+                    os._exit(1)
+            ww.flush()
 
     def reader(self):
         while True:
@@ -157,18 +217,14 @@ class SDRIQ:
                                                                                  len(data)))
                 pass
 
-    # absorb new input, if any, into self.reader_buf[]
+    # read data from the pipe from the child process.
+    # absorb it into self.reader_buf[].
     # only called by the reader thread.
     def rawread(self):
-        # do our own read and buffer to avoid serial's internal
-        # buffering and desire to return exactly the asked-for
-        # number of bytes.
-        timeout = 10
-        select.select([self.port.fileno()], [], [], timeout)
-        z = os.read(self.port.fileno(), 8194)
-        if len(z) > 0:
-            zz = [ ord(x) for x in z ]
-            self.reader_buf = self.reader_buf + zz
+        buf = os.read(self.pipe, 10240)
+        if len(buf) > 0:
+            buf = [ ord(x) for x in buf ]
+            self.reader_buf = self.reader_buf + buf
 
     # return exactly n bytes
     # only called by the reader thread.
@@ -211,7 +267,7 @@ class SDRIQ:
     def readreply(self, mitem):
         t0 = time.time()
         while True:
-            if time.time() - t0 > 2:
+            if time.time() - t0 > 5:
                 sys.stderr.write("sdriq: timed out waiting for reply to item=%x\n" % (mitem))
                 sys.exit(1)
             got = None

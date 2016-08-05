@@ -123,9 +123,9 @@ class SDRIP:
     self.cs = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self.cs.connect((self.ipaddr, 50000))
 
-    # fork() a sub-process to read the data UDP socket, since
-    # the Python thread scheduler doesn't run us often enough
-    # if WSPR is compute-bound for tens of seconds.
+    # fork() a sub-process to read and buffer the data UDP socket,
+    # since the Python thread scheduler doesn't run us often enough if
+    # WSPR is compute-bound in numpy for tens of seconds.
     r, w = os.pipe()
     pid = os.fork()
     if pid == 0:
