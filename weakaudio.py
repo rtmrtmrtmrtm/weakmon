@@ -8,9 +8,6 @@
 
 import sys
 import numpy
-import scipy
-import scipy.signal
-from scipy.signal import lfilter
 import time
 import thread
 import threading
@@ -76,6 +73,8 @@ class Stream:
         self.cardtime = time.time() # UNIX time just after last sample in cardbuf
         self.cardlock = thread.allocate_lock()
 
+        self.resampler = weakutil.Resampler(self.cardrate, self.rate)
+
         if self.use_oss:
             self.oss_open()
         else:
@@ -90,17 +89,7 @@ class Stream:
         self.cardbuf = numpy.array([])
         self.cardlock.release()
 
-        if self.rate != self.cardrate and len(buf) > 0:
-            # low-pass filter, then down-sample from self.cardrate to self.rate.
-            zi = lfilter(self.filter[0], self.filter[1], buf, zi=self.zi)
-            buf = zi[0]
-            self.zi = zi[1]
-
-            secs =  len(buf)*(1.0/self.cardrate)
-            ox = numpy.arange(0, secs, 1.0 / self.cardrate)
-            ox = ox[0:len(buf)]
-            nx = numpy.arange(0, secs, 1.0 / self.rate)
-            buf = numpy.interp(nx, ox, buf)
+        buf = self.resampler.resample(buf)
 
         return [ buf, buf_time ]
 
@@ -155,15 +144,6 @@ class Stream:
                                    stream_callback=self.pya_callback,
                                    output=False,
                                    input=True)
-
-        if self.cardrate != self.rate:
-            sys.stderr.write("weakaudio: down-sampling from %d to %d\n" % (self.cardrate,
-                                                                           self.rate))
-            # prepare a filter to precede resampling.
-            self.filter = weakutil.butter_lowpass(0.45 * self.rate, self.cardrate, 10)
-            self.zi = scipy.signal.lfiltic(self.filter[0],
-                                           self.filter[1],
-                                           [0])
 
     # find the lowest supported rate >= rate.
     # needed on Linux but not the Mac (which converts as needed).
@@ -233,11 +213,7 @@ class SDRIP:
         self.cardtime = time.time() # UNIX time just after last sample in bufbuf
         self.cardlock = thread.allocate_lock()
 
-        # prepare down-sampling filter.
-        self.filter = weakutil.butter_lowpass(0.45 * self.rate, self.sdrrate, 10)
-        self.zi = scipy.signal.lfiltic(self.filter[0],
-                                       self.filter[1],
-                                       [0])
+        self.resampler = weakutil.Resampler(self.sdrrate, self.rate)
 
         self.sdr = sdrip.open(ip)
         self.sdr.setrate(self.sdrrate)
@@ -247,6 +223,8 @@ class SDRIP:
         self.th = threading.Thread(target=lambda : self.sdr_thread())
         self.th.daemon = True
         self.th.start()
+
+        self.junk = 0
 
     # returns [ buf, tm ]
     # where tm is UNIX seconds of the last sample.
@@ -261,18 +239,10 @@ class SDRIP:
             return [ numpy.array([]), buf_time ]
 
         buf = numpy.concatenate(bufbuf)
-        buf = sdrip.iq2usb(buf) # I/Q -> USB
 
-        # low-pass filter, then down-sample from 32000 to self.rate.
-        zi = lfilter(self.filter[0], self.filter[1], buf, zi=self.zi)
-        buf = zi[0]
-        self.zi = zi[1]
+        buf = weakutil.iq2usb(buf) # I/Q -> USB
 
-        secs =  len(buf)*(1.0/self.sdrrate)
-        ox = numpy.arange(0, secs, 1.0 / self.sdrrate)
-        ox = ox[0:len(buf)]
-        nx = numpy.arange(0, secs, 1.0 / self.rate)
-        buf = numpy.interp(nx, ox, buf)
+        buf = self.resampler.resample(buf)
 
         return [ buf, buf_time ]
 
@@ -306,17 +276,12 @@ class SDRIQ:
         self.cardtime = time.time() # UNIX time just after last sample in bufbuf
         self.cardlock = thread.allocate_lock()
 
-        if self.rate < self.sdrrate:
-            # prepare down-sampling filter.
-            self.filter = weakutil.butter_lowpass(0.45 * self.rate, self.sdrrate, 10)
-            self.zi = scipy.signal.lfiltic(self.filter[0],
-                                           self.filter[1],
-                                           [0])
+        self.resampler = weakutil.Resampler(self.sdrrate, self.rate)
 
         self.sdr = sdriq.open(ip)
         self.sdr.setrate(self.sdrrate)
-        self.sdr.setgain(-10)
-        self.sdr.setifgain(12) # I don't know how to set this!
+        self.sdr.setgain(0)
+        self.sdr.setifgain(18) # I don't know how to set this!
         self.sdr.setrun(True)
 
         self.th = threading.Thread(target=lambda : self.sdr_thread())
@@ -336,24 +301,14 @@ class SDRIQ:
             return [ numpy.array([]), buf_time ]
 
         buf = numpy.concatenate(bufbuf)
-        buf = sdrip.iq2usb(buf) # I/Q -> USB
+        buf = weakutil.iq2usb(buf) # I/Q -> USB
 
-        if self.rate < self.sdrrate:
-            # low-pass filter, then down-sample from self.sdrrate to self.rate.
-            zi = lfilter(self.filter[0], self.filter[1], buf, zi=self.zi)
-            buf = zi[0]
-            self.zi = zi[1]
-            
-        secs =  len(buf)*(1.0/self.sdrrate)
-        ox = numpy.arange(0, secs, 1.0 / self.sdrrate)
-        ox = ox[0:len(buf)]
-        nx = numpy.arange(0, secs, 1.0 / self.rate)
-        buf = numpy.interp(nx, ox, buf)
+        buf = self.resampler.resample(buf)
 
         # no matter how I set its RF or IF gain,
-        # the SDR-IP generates peaks around 145000,
+        # the SDR-IQ generates peaks around 145000,
         # or I and Q values of 65535. cut this down
-        # so application doesn't think the SDR-IP is clipping.
+        # so application doesn't think the SDR-IQ is clipping.
         buf = buf / 10.0
 
         return [ buf, buf_time ]
@@ -389,13 +344,7 @@ class EB200:
         self.sdr = eb200.open(ip)
         self.sdrrate = self.sdr.getrate()
 
-        if self.sdrrate > self.rate:
-            # prepare down-sampling filter.
-            self.filter = weakutil.butter_lowpass(0.45 * self.rate, self.sdrrate, 10)
-            self.zi = scipy.signal.lfiltic(self.filter[0],
-                                           self.filter[1],
-                                           [0])
-
+        self.resampler = weakutil.Resampler(self.sdrrate, self.rate)
 
     # returns [ buf, tm ]
     # where tm is UNIX seconds of the last sample.
@@ -408,19 +357,7 @@ class EB200:
         buf_time = self.cardtime
         self.time_mu.release()
 
-        if self.sdrrate > self.rate:
-            # low-pass filter.
-            zi = lfilter(self.filter[0], self.filter[1], buf, zi=self.zi)
-            buf = zi[0]
-            self.zi = zi[1]
-
-        if self.sdrrate != self.rate:
-            # change sample rate.
-            secs =  len(buf)*(1.0/self.sdrrate)
-            ox = numpy.arange(0, secs, 1.0 / self.sdrrate)
-            ox = ox[0:len(buf)]
-            nx = numpy.arange(0, secs, 1.0 / self.rate)
-            buf = numpy.interp(nx, ox, buf)
+        buf = self.resampler.resample(buf)
 
         return [ buf, buf_time ]
 

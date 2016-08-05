@@ -128,12 +128,99 @@ def moving_average(a, n):
     ret[n:] = ret[n:] - ret[:-n]
     return ret[n - 1:] / n
 
+# IQ -> USB
+def iq2usb(iq):
+    ii = iq.real
+    qq = iq.imag
+    ii = numpy.real(scipy.signal.hilbert(ii)) # delay to match hilbert(Q)
+    qq = numpy.imag(scipy.signal.hilbert(qq))
+    ssb = numpy.subtract(ii, qq) # usb from phasing method
+    #ssb = numpy.add(ii, qq) # lsb from phasing method
+    assert len(iq) == len(ssb)
+    return ssb
+
+# change sampling rate from from_rate to to_rate.
+# buf must already be low-pass filtered if to_rate < from_rate.
+# note that result probably has slightly different
+# length in seconds, so caller may want to adjust.
+def resample(buf, from_rate, to_rate):
+    if to_rate == from_rate/2:
+        buf = buf[0::2]
+    elif True:
+        want = (len(buf) / float(from_rate)) * to_rate
+        want = int(want)
+        buf = scipy.signal.resample(buf, want)
+    else:
+        secs =  len(buf)*(1.0/from_rate)
+        ox = numpy.arange(0, secs, 1.0 / from_rate)
+        ox = ox[0:len(buf)]
+        nx = numpy.arange(0, secs, 1.0 / to_rate)
+        buf = numpy.interp(nx, ox, buf)
+    return buf
+
+# gadget to low-pass-filter and re-sample a multi-block
+# stream without losing fraction samples at block
+# boundaries, which would hurt phase-shift demodulators
+# like WWVB.
+class Resampler:
+    def __init__(self, from_rate, to_rate):
+        self.from_rate = from_rate
+        self.to_rate = to_rate
+
+        if self.from_rate > self.to_rate:
+            # prepare a filter to precede resampling.
+            self.filter = butter_lowpass(0.45 * self.to_rate,
+                                                  from_rate,
+                                                  10)
+            self.zi = scipy.signal.lfiltic(self.filter[0],
+                                           self.filter[1],
+                                           [0])
+
+        # accumulate the number of samples that have been dropped
+        # due to re-sampling.
+        self.lost_sum = 0
+
+    def resample(self, buf):
+        if self.from_rate > self.to_rate:
+            # low-pass filter.
+            zi = scipy.signal.lfilter(self.filter[0],
+                                      self.filter[1],
+                                      buf,
+                                      zi=self.zi)
+            buf = zi[0]
+            self.zi = zi[1]
+
+        if self.from_rate != self.to_rate:
+            oldsec = len(buf) / float(self.from_rate)
+
+            # change sample rate.
+            buf = resample(buf, self.from_rate, self.to_rate)
+
+            # buf is probably too short by a fraction of a sample;
+            # keep track of how many samples we've lost so we don't
+            # screw up the phase.
+            newsec = len(buf) / float(self.to_rate)
+            lost = (oldsec - newsec) * self.to_rate
+            self.lost_sum += lost
+            while self.lost_sum > 1.0:
+                buf = numpy.append(buf, buf[-1:])
+                self.lost_sum -= 1.0
+            while self.lost_sum < -1.0:
+                buf = buf[0:-1]
+                self.lost_sum += 1.0
+
+        return buf
+
 # write a mono file
 def writewav1(left, filename, rate):
   ww = wave.open(filename, 'w')
   ww.setnchannels(1)
   ww.setsampwidth(2)
   ww.setframerate(rate)
+
+  # ensure signal levels are OK.
+  mx = numpy.max(left)
+  left = (10000.0 * left) / mx
 
   # convert to 16-bit ints
   a = numpy.array(left, dtype=numpy.int16)
@@ -151,6 +238,12 @@ def writewav2(left, right, filename, rate):
   ww.setnchannels(2)
   ww.setsampwidth(2)
   ww.setframerate(rate)
+
+  # ensure signal levels are OK.
+  mx = numpy.max(left)
+  left = (10000.0 * left) / mx
+  mx = numpy.max(right)
+  right = (10000.0 * right) / mx
 
   # interleave.
   a = numpy.zeros(len(left) + len(right))

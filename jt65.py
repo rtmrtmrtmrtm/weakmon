@@ -247,13 +247,7 @@ class JT65:
       samples = scipy.signal.lfilter(filter[0],
                                      filter[1],
                                      samples)
-      if self.cardrate/2 == self.jrate:
-        samples = samples[0::2]
-      else:
-        # brutally slow sometimes, e.g. 11025->5512
-        want = (len(samples) / float(self.cardrate)) * self.jrate
-        want = int(want)
-        samples = scipy.signal.resample(samples, want)
+      samples = weakutil.resample(samples, self.cardrate, self.jrate)
 
     # pad at start+end b/c transmission might have started early
     # or late.

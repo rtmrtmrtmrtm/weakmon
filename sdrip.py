@@ -23,6 +23,7 @@ import thread
 import threading
 import time
 import struct
+import weakutil
 
 def x8(x):
   s = chr(x & 0xff)
@@ -57,23 +58,6 @@ def hx(s):
   for i in range(0, len(s)):
     buf += "%02x " % (ord(s[i]))
   return buf
-
-def butter_lowpass(cut, samplerate, order=5):
-  nyq = 0.5 * samplerate
-  cut = cut / nyq
-  b, a = scipy.signal.butter(order, cut, btype='lowpass')
-  return b, a
-
-# IQ -> USB
-def iq2usb(iq):
-    ii = iq.real
-    qq = iq.imag
-    ii = numpy.real(scipy.signal.hilbert(ii)) # delay to match hilbert(Q)
-    qq = numpy.imag(scipy.signal.hilbert(qq))
-    ssb = numpy.subtract(ii, qq) # usb from phasing method
-    #ssb = numpy.add(ii, qq) # lsb from phasing method
-    assert len(iq) == len(ssb)
-    return ssb
 
 mu = thread.allocate_lock()
 
@@ -325,12 +309,13 @@ class SDRIP:
       self.setitem(0x00B8, data)
 
   # A/D Modes
-  # always sets dither and A/D gain 1.5
+  # set dither and A/D gain
   def setad(self):
     data = ""
     data += x8(0) # ignored
-    #data += x8(0x3) # bit zero is dither, bit 1 is A/D gain 1.5
-    data += x8(0x1) # bit zero is dither, bit 1 is A/D gain 1.5
+    # bit zero is dither, bit 1 is A/D gain 1.5
+    #data += x8(0x3)
+    data += x8(0x1)
     self.setitem(0x008A, data)
 
   # RF Filter Select
@@ -453,5 +438,5 @@ class SDRIP:
   #
   def readusb(self):
     iq = self.readiq()
-    usb = iq2usb(iq)
+    usb = weakutil.iq2usb(iq)
     return usb

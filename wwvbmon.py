@@ -101,10 +101,6 @@ class WWVB:
     self.wav_width = self.wav.getsampwidth()
     self.rate = self.wav.getframerate()
 
-    print "# wwvb: %s center=%.3f chan=%d chans=%d width=%d rate=%d" % (filename, center, chan, self.wav_channels,
-                                               self.wav_width, self.rate)
-    print "# searchtime=%s searchfreq=%s" % (self.searchtime, self.searchfreq)
-
   def readwav(self, chan):
     z = self.wav.readframes(1024)
     if self.wav_width == 1:
@@ -130,7 +126,7 @@ class WWVB:
       buf = self.readwav(chan)
       if buf.size < 1:
         break
-      self.gotsamples(buf)
+      self.gotsamples(buf, 0)
       while self.process(False):
         pass
     self.process(True)
@@ -253,6 +249,10 @@ class WWVB:
     else:
       if len(self.samples) < 130 * bitsamples:
         return False
+
+    if False:
+        print "saving to aaa.wav, max %.0f" % (numpy.max(self.samples))
+        weakutil.writewav1(self.samples, "aaa.wav", self.rate)
 
     # the main mode of failure seems to be that the
     # measured frequency is wrong, perhaps because of
@@ -613,7 +613,7 @@ class WWVB:
     return (eccok, m)
 
 def usage():
-  sys.stderr.write("Usage: wwvbmon.py -in CARD:CHAN [-cat type dev]\n")
+  sys.stderr.write("Usage: wwvbmon.py -in CARD:CHAN [-cat type dev] [-levels]\n")
   sys.stderr.write("       wwvbmon.py -file fff\n")
   # list sound cards
   weakaudio.usage()
@@ -625,6 +625,7 @@ def main():
   center = 1000
   cattype = None
   catdev = None
+  levels = False
   
   i = 1
   while i < len(sys.argv):
@@ -641,18 +642,31 @@ def main():
       cattype = sys.argv[i+1]
       catdev = sys.argv[i+2]
       i += 3
+    elif sys.argv[i] == "-levels":
+      levels = True
+      i += 1
     else:
       usage()
+
+  if cattype != None:
+    cat = weakcat.open(cattype, catdev)
+    cat.set_usb_data()
+    cat.setf(0, 59000)
+
+  if levels:
+    # print sound card avg/peak once per second, to
+    # adjust level.
+    if incard == None:
+        usage()
+    c = weakaudio.new(incard, 11025)
+    c.levels()
+    sys.exit(0)
   
   if filename != None and incard == None:
     r = WWVB()
     r.center = center
     r.gowav(filename, 0)
   elif filename == None and incard != None:
-    if cattype != None:
-        cat = weakcat.open(cattype, catdev)
-        cat.set_usb_data()
-        cat.setf(0, 59000)
     r = WWVB()
     r.center = center
     r.opencard(incard)
