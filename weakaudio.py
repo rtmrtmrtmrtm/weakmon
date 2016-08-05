@@ -73,12 +73,12 @@ class Stream:
         self.cardtime = time.time() # UNIX time just after last sample in cardbuf
         self.cardlock = thread.allocate_lock()
 
-        self.resampler = weakutil.Resampler(self.cardrate, self.rate)
-
         if self.use_oss:
             self.oss_open()
         else:
             self.pya_open()
+
+        self.resampler = weakutil.Resampler(self.cardrate, self.rate)
 
     # returns [ buf, tm ]
     # where tm is UNIX seconds of the last sample.

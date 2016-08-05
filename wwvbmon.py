@@ -132,8 +132,7 @@ class WWVB:
     self.process(True)
 
   def opencard(self, desc):
-      # self.rate = 8000
-      self.rate = 11025
+      self.rate = 8000
       self.audio = weakaudio.new(desc, self.rate)
 
   def gocard(self):
