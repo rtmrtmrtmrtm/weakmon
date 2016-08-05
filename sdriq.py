@@ -5,7 +5,7 @@
 # uses the kernel USB FTDI driver, which shows up as a serial device.
 # may need SDR-IQ firmware >= 1.07.
 #
-# works on Linux; basically works on the Mac but sometimes breaks.
+# works on Linux and Macs.
 #
 # Example:
 #   sdr = sdriq.open("/dev/cu.usbserial-142")

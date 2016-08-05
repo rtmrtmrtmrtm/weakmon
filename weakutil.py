@@ -146,7 +146,8 @@ def iq2usb(iq):
 def resample(buf, from_rate, to_rate):
     if to_rate == from_rate/2:
         buf = buf[0::2]
-    elif True:
+    elif False:
+        # can be extremely slow.
         want = (len(buf) / float(from_rate)) * to_rate
         want = int(want)
         buf = scipy.signal.resample(buf, want)
