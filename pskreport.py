@@ -162,7 +162,7 @@ class T:
             self.last_send = time.time()
     
 if __name__ == '__main__':
-    pskr = T("AB1HL", "FN42", "weakmon 0.1", True)
+    pskr = T("AB1HL", "FN42", "weakmon 0.2", True)
 
     #pkt = pskr.fmt([ [ "W1WW", 10138000, "CW", "EM11", time.time() ],
     #                 [ "K1D", 14076000, "JT65", "DD14", time.time() ] ])

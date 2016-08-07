@@ -22,7 +22,8 @@ import sdrip
 import sdriq
 import eb200
 
-def open(type, dev):
+def open(desc):
+    [type, dev] = desc
     if type == "k3":
         return K3(dev)
     if type == "rx340":

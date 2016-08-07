@@ -141,7 +141,7 @@ class SDRIQ:
         # this does not change the sampling frequency.
         nclock = int(66666667 * (1.0 + ppm/1000000.0))
         self.setinputrate(nclock)
-        sys.stderr.write("sdriq: DDC frequency set to %d\n" % (self.getinputrate()))
+        sys.stderr.write("sdriq: DDC clock set to %d\n" % (self.getinputrate()))
 
     def child1(self):
         while True:

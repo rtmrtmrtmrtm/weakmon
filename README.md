@@ -40,14 +40,14 @@ like this:
 
 ```
   % python2.7 jt65mon.py
-  Usage: jt65mon.py -in CARD:CHAN -cat type dev [-band BAND] [-levels]
-  sound card numbers:
+  Usage: jt65mon.py -card CARD CHAN -cat type dev [-band BAND] [-levels]
+  sound card numbers for -card:
     0: Built-in Microph, channels=2
     1: Built-in Output, channels=0
     2: iMic USB audio system, channels=2
-    or sdrip:IPADDR
-    or sdriq:/dev/SERIALPORT
-    or eb200:IPADDR
+    or -card sdrip IPADDR
+    or -card sdriq /dev/SERIALPORT
+    or -card eb200 IPADDR
   serial devices:
     /dev/cu.Bluetooth-Incoming-Port
     /dev/cu.usbserial-FTXVKSG8A
@@ -61,10 +61,10 @@ If I hook my radio's audio output up to my iMic USB sound card input,
 and set the radio frequency to 14.076, I can monitor jt65 like this:
 
 ```
-  % python2.7 jt65mon.py -in 2:0 -band 20
+  % python2.7 jt65mon.py -card 2 0 -band 20
 ```
 
-The "-in 2:0" means the left (0) channel of sound card number 2. After
+The "-card 2 0" means the left (0) channel of sound card number 2. After
 a few minutes I might see output like this:
 
 ```
@@ -80,7 +80,7 @@ and it's connected by a serial connection, you can monitor JT65 while
 switching bands periodically, e.g:
 
 ```
-  % python2.7 jt65mon.py -in 2:0 -cat k3 /dev/cu.usbserial-FTXVKSG8A
+  % python2.7 jt65mon.py -card 2 0 -cat k3 /dev/cu.usbserial-FTXVKSG8A
 ```
 
 You may need to take steps to give yourself permission to use the
@@ -90,7 +90,7 @@ group).
 For an RFSpace SDR-IP or NetSDR at IP address 10.0.0.2:
 
 ```
-  % python2.7 jt65mon.py -in sdrip:10.0.0.2 -cat sdrip 10.0.0.2
+  % python2.7 jt65mon.py -card sdrip 10.0.0.2 -cat sdrip 10.0.0.2
 ```
 
 Use the -levels flag to help you adjust the audio level from the

@@ -2,7 +2,11 @@
 
 #
 # receive JT65.
-# will change bands if weakcat.py understands the radio.
+#
+# switches among bands if weakcat.py understands the radio.
+# reports to pskreporter.info if mycall/mygrid defined in weak.ini.
+#
+# Robert Morris, AB1HL
 #
 
 import jt65
@@ -16,8 +20,9 @@ import random
 import copy
 import weakcat
 import weakaudio
-import pskreport
 import weakutil
+import weakargs
+import pskreport
 
 # look only at these bands.
 plausible = [ "40", "30", "20", "17", "15" ]
@@ -84,7 +89,7 @@ def wchoice_test():
 
 # listen for CQ, answer.
 class JT65Mon:
-    def __init__(self, desc1, desc2, cattype, catdev, oneband):
+    def __init__(self, desc1, desc2, cat, oneband):
         self.mycall = weakutil.cfg("jt65mon", "mycall")
         self.mygrid = weakutil.cfg("jt65mon", "mygrid")
 
@@ -100,8 +105,8 @@ class JT65Mon:
         if desc2 != None:
             self.incards.append(desc2)
 
-        if cattype != None:
-            self.cat = weakcat.open(cattype, catdev)
+        if cat != None:
+            self.cat = weakcat.open(cat)
             self.cat.sync()
             self.cat.set_usb_data()
         else:
@@ -116,7 +121,7 @@ class JT65Mon:
         if self.mycall != None and self.mygrid != None:
             # talk to pskreporter.
             print "reporting to pskreporter as %s at %s" % (self.mycall, self.mygrid)
-            self.pskr = pskreport.T(self.mycall, self.mygrid, "weakmon 0.1", False)
+            self.pskr = pskreport.T(self.mycall, self.mygrid, "weakmon 0.2", False)
         else:
             print "not reporting to pskreporter since call/grid not in weak.cfg"
             self.pskr = None
@@ -315,70 +320,25 @@ class JT65Mon:
         for th in self.rth:
             th.join()
 
-def usage():
-    sys.stderr.write("Usage: jt65mon.py -in CARD:CHAN -cat type dev [-v] [-band BAND] [-levels]\n")
-
-    # list sound cards
-    weakaudio.usage()
-
-    # list serial ports
-    weakcat.usage()
-
-    sys.exit(1)
-
 def main():
-    desc1 = None
-    desc2 = None
-    cattype = None
-    catdev = None
-    levels = False
-    oneband = None
-    vflag = False
+    parser = weakargs.stdparse('Decode JT65A.')
+    parser.add_argument("-band")
+    parser.add_argument("-card2", nargs=2, metavar=('CARD', 'CHAN'))
+    args = parser.parse_args()
     
-    i = 1
-    while i < len(sys.argv):
-        if sys.argv[i] == "-in":
-            desc1 = sys.argv[i+1]
-            i += 2
-        elif sys.argv[i] == "-in2":
-            desc2 = sys.argv[i+1]
-            i += 2
-        elif sys.argv[i] == "-cat":
-            cattype = sys.argv[i+1]
-            catdev = sys.argv[i+2]
-            i += 3
-        elif sys.argv[i] == "-levels":
-            levels = True
-            i += 1
-        elif sys.argv[i] == "-band":
-            oneband = sys.argv[i+1]
-            i += 2
-        elif sys.argv[i] == "-v":
-            vflag = True
-            i += 1
-        else:
-            usage()
+    if args.levels == True:
+        weakaudio.levels(args.card)
+        
+    if args.card == None:
+        parser.error("jt65mon requires -card")
+      
+    if args.cat == None and args.band == None:
+        parser.error("jt65mon needs either -cat or -band")
 
-    if levels:
-        # print sound card avg/peak once per second, to
-        # adjust level.
-        if desc1 == None:
-            usage()
-        c = weakaudio.new(desc1, 11025)
-        c.levels()
-        sys.exit(0)
-    
-    if catdev == None and oneband == None:
-        sys.stderr.write("jt65mon needs either -cat or -band\n")
-        usage()
-
-    if desc1 == None:
-        usage()
-
-    jt65mon = JT65Mon(desc1, desc2, cattype, catdev, oneband)
-    jt65mon.verbose = vflag
+    jt65mon = JT65Mon(args.card, args.card2, args.cat, args.band)
+    jt65mon.verbose = args.v
     jt65mon.go()
     jt65mon.close()
+    sys.exit(0)
 
 main()
-

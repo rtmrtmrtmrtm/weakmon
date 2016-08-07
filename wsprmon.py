@@ -3,6 +3,11 @@
 #
 # WSPR receiver.
 #
+# switches among bands if weakcat.py understands the radio.
+# reports to wsprnet if mycall/mygrid defined in weak.ini.
+#
+# Robert Morris, AB1HL
+#
 
 import wspr
 import sys
@@ -19,7 +24,7 @@ import urllib
 import weakutil
 
 # look only at these bands.
-plausible = [ "40", "30", "20" ]
+plausible = [ "80", "40", "30", "20", "17" ]
 
 b2f = { "80" : 3.592600, "40" : 7.038600, "30" : 10.138700, "20" : 14.095600,
         "17" : 18.104600, "15" : 21.094600, "12" : 24.924600,
@@ -180,7 +185,7 @@ class WSPRMon:
                 url += "tcall=%s&" % (call)
                 url += "tgrid=%s&" % (grid)
                 url += "dbm=%s&" % (dbm)
-                url += "version=weakmon-0.1&"
+                url += "version=weakmon-0.2&"
                 url += "mode=2"
 
                 try:

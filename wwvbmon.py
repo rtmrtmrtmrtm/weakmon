@@ -17,6 +17,8 @@ import wave
 import weakaudio
 import weakcat
 import weakutil
+import weakargs
+import weakaudio
 import scipy
 import scipy.signal
 import sys
@@ -26,7 +28,7 @@ import time
 import calendar
 import subprocess
 import thread
-from scipy.signal import lfilter
+import argparse
 
 # a[] and b[] are -1/0/1 bit sequences.
 # in how many bits are they identical?
@@ -159,7 +161,7 @@ class WWVB:
                                      self.filter[1],
                                      [0])
 
-    zi = lfilter(self.filter[0], self.filter[1], buf, zi=self.zi)
+    zi = scipy.signal.lfilter(self.filter[0], self.filter[1], buf, zi=self.zi)
     self.samples = numpy.concatenate((self.samples, zi[0]))
     self.zi = zi[1]
 
@@ -611,66 +613,38 @@ class WWVB:
     
     return (eccok, m)
 
-def usage():
-  sys.stderr.write("Usage: wwvbmon.py -in CARD:CHAN [-cat type dev] [-levels]\n")
-  sys.stderr.write("       wwvbmon.py -file fff\n")
-  # list sound cards
-  weakaudio.usage()
-  sys.exit(1)
-
 def main():
-  filename = None
-  incard = None
-  center = 1000
-  cattype = None
-  catdev = None
-  levels = False
-  
-  i = 1
-  while i < len(sys.argv):
-    if sys.argv[i] == "-in":
-      incard = sys.argv[i+1]
-      i += 2
-    elif sys.argv[i] == "-center":
-      center = float(sys.argv[i+1])
-      i += 2
-    elif sys.argv[i] == "-file":
-      filename = sys.argv[i+1]
-      i += 2
-    elif sys.argv[i] == "-cat":
-      cattype = sys.argv[i+1]
-      catdev = sys.argv[i+2]
-      i += 3
-    elif sys.argv[i] == "-levels":
-      levels = True
-      i += 1
-    else:
-      usage()
+  parser = weakargs.stdparse('Decode phase-shift WWVB.')
+  parser.add_argument("-center", metavar='Hz', default=1000.0, type=float)
+  parser.add_argument("-file")
+  args = parser.parse_args()
 
-  if cattype != None:
-    cat = weakcat.open(cattype, catdev)
+  if args.cat != None:
+    cat = weakcat.open(args.cat)
     cat.set_usb_data()
     cat.setf(0, 59000)
 
-  if levels:
-    # print sound card avg/peak once per second, to
-    # adjust level.
-    if incard == None:
-        usage()
-    c = weakaudio.new(incard, 11025)
-    c.levels()
+  if args.levels == True:
+    weakaudio.levels(args.card)
+
+  if (args.card == None) == (args.file == None):
+    parser.error("one of -card and -file are required")
+
+  if args.file != None:
+    r = WWVB()
+    r.center = args.center
+    r.gowav(args.file, 0)
     sys.exit(0)
-  
-  if filename != None and incard == None:
+
+  if args.card != None:
     r = WWVB()
-    r.center = center
-    r.gowav(filename, 0)
-  elif filename == None and incard != None:
-    r = WWVB()
-    r.center = center
-    r.opencard(incard)
+    r.center = args.center
+    r.opencard(args.card)
     r.gocard()
-  else:
-    usage()
+    sys.exit(0)
+
+  parser.error("one of -card, -file, or -levels is required")
+
+  sys.exit(1)
 
 main()

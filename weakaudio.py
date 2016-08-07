@@ -11,7 +11,6 @@ import numpy
 import time
 import thread
 import threading
-import re
 import os
 
 import weakutil
@@ -20,26 +19,24 @@ import sdrip
 import sdriq
 import eb200
 
-# desc is "6:0" for a sound card -- sixth card, channel 0 (left).
+# desc is [ "6", "0" ] for a sound card -- sixth card, channel 0 (left).
+# desc is [ "sdrip", "192.168.1.2" ] for RFSpace SDR-IP.
 def new(desc, rate):
     # sound card?
-    m = re.search(r'^([0-9]+):([0-9]+)$', desc)
-    if m != None:
-        return Stream(int(m.group(1)), int(m.group(2)), rate)
+    if desc[0].isdigit():
+        return Stream(int(desc[0]), int(desc[1]), rate)
 
-    m = re.search(r'^sdrip:([0-9.]+)$', desc)
-    if m != None:
-        return SDRIP(m.group(1), rate)
+    if desc[0] == "sdrip":
+        return SDRIP(desc[1], rate)
 
-    m = re.search(r'^sdriq:(/.+)$', desc)
-    if m != None:
-        return SDRIQ(m.group(1), rate)
+    if desc[0] == "sdriq":
+        return SDRIQ(desc[1], rate)
 
-    m = re.search(r'^eb200:([0-9.]+)$', desc)
-    if m != None:
-        return EB200(m.group(1), rate)
+    if desc[0] == "eb200":
+        return EB200(desc[1], rate)
 
-    sys.stderr.write("weakaudio: unknown desc %s" % (desc))
+    sys.stderr.write("weakaudio: cannot understand card %s\n" % (desc[0]))
+    usage()
     sys.exit(1)
 
 # need a single one of these even if multiple streams.
@@ -376,7 +373,7 @@ class EB200:
 def usage():
     import pyaudio
     ndev = pya().get_device_count()
-    sys.stderr.write("sound card numbers:\n")
+    sys.stderr.write("sound card numbers for -card:\n")
     for i in range(0, ndev):
         info = pya().get_device_info_by_index(i) 
         sys.stderr.write("  %d: %s, channels=%d" % (i,
@@ -395,6 +392,17 @@ def usage():
                 if ok:
                     sys.stderr.write(" %d" % (rate))
         sys.stderr.write("\n")
-    sys.stderr.write("  or sdrip:IPADDR\n")
-    sys.stderr.write("  or sdriq:/dev/SERIALPORT\n")
-    sys.stderr.write("  or eb200:IPADDR\n")
+    sys.stderr.write("  or -card sdrip IPADDR\n")
+    sys.stderr.write("  or -card sdriq /dev/SERIALPORT\n")
+    sys.stderr.write("  or -card eb200 IPADDR\n")
+
+# implement -levels.
+# print sound card avg/peak once per second, to adjust level.
+# never returns.
+def levels(card):
+    if card == None:
+        sys.stderr.write("-levels requires -card\n")
+        sys.exit(1)
+    c = new(card, 11025)
+    c.levels()
+    sys.exit(0)

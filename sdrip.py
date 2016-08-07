@@ -119,10 +119,6 @@ class SDRIP:
     self.ds.bind(('', 0)) # ask kernel to choose a free port
     hostport = self.ds.getsockname() # hostport[1] is port number
 
-    # commands over TCP to port 50000
-    self.cs = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    self.cs.connect((self.ipaddr, 50000))
-
     # fork() a sub-process to read and buffer the data UDP socket,
     # since the Python thread scheduler doesn't run us often enough if
     # WSPR is compute-bound in numpy for tens of seconds.
@@ -135,6 +131,10 @@ class SDRIP:
     else:
         self.pipe = r
         os.close(w)
+
+    # commands over TCP to port 50000
+    self.cs = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    self.cs.connect((self.ipaddr, 50000))
 
     # tell the SDR-IP where to send UDP packets
     self.setudp(hostport[1])
