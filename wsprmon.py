@@ -22,6 +22,7 @@ import copy
 import weakcat
 import urllib
 import weakutil
+import weakargs
 
 # look only at these bands.
 plausible = [ "80", "40", "30", "20", "17" ]
@@ -87,7 +88,7 @@ def wchoice_test():
     print counts
 
 class WSPRMon:
-    def __init__(self, incard, cattype, catdev, oneband):
+    def __init__(self, incard, cat, oneband):
         self.mycall = weakutil.cfg("wsprmon", "mycall")
         self.mygrid = weakutil.cfg("wsprmon", "mygrid")
 
@@ -101,8 +102,8 @@ class WSPRMon:
         self.incard = incard
         self.oneband = oneband
 
-        if catdev != None:
-            self.cat = weakcat.open(cattype, catdev)
+        if cat != None:
+            self.cat = weakcat.open(cat)
             self.cat.sync()
             self.cat.set_usb_data()
         else:
@@ -343,19 +344,7 @@ class WSPRMon:
                 self.readall()
                 time.sleep(1)
                 
-
-def usage():
-    sys.stderr.write("Usage: wsprmon.py -in CARD:CHAN [-cat type /dev/xxx] [-v] [-band band] [-levels]\n")
-
-    # list sound cards
-    weakaudio.usage()
-
-    # list serial ports
-    weakcat.usage()
-
-    sys.exit(1)
-
-def main():
+def oldmain():
     incard = None
     cattype = None
     catdev = None
@@ -406,6 +395,26 @@ def main():
     else:
         usage()
 
+def main():
+    parser = weakargs.stdparse('Decode WSPR.')
+    parser.add_argument("-band")
+    args = parser.parse_args()
+    
+    if args.levels == True:
+        weakaudio.levels(args.card)
+        
+    if args.card == None:
+        parser.error("wsprmon requires -card")
+      
+    if args.cat == None and args.band == None:
+        parser.error("wsprmon needs either -cat or -band")
+
+    w = WSPRMon(args.card, args.cat, args.band)
+    w.verbose = args.v
+    w.start()
+    w.go()
+    w.close()
+
+    sys.exit(0)
 
 main()
-
