@@ -255,6 +255,12 @@ class WWVB:
         print "saving to aaa.wav, max %.0f" % (numpy.max(self.samples))
         weakutil.writewav1(self.samples, "aaa.wav", self.rate)
 
+    # pad at start and end in case samples started late / ended early.
+    #sm = numpy.mean(self.samples)
+    #sd = numpy.std(self.samples)
+    #self.samples = numpy.append(numpy.random.normal(sm, sd, self.rate), self.samples)
+    #self.samples = numpy.append(self.samples, numpy.random.normal(sm, sd, self.rate))
+
     # the main mode of failure seems to be that the
     # measured frequency is wrong, perhaps because of
     # heterodynes very close to 60 khz. so try
@@ -618,6 +624,11 @@ def main():
   parser.add_argument("-center", metavar='Hz', default=1000.0, type=float)
   parser.add_argument("-file")
   args = parser.parse_args()
+  
+  # don't require -cat if the "card" is really a controllable
+  # radio itself.
+  if args.card != None and args.card[0] in [ "sdrip", "sdriq", "eb200" ] and args.cat == None:
+    args.cat = args.card
 
   if args.cat != None:
     cat = weakcat.open(args.cat)

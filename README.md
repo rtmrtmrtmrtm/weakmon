@@ -75,7 +75,7 @@ a few minutes I might see output like this:
 The 3rd column is the band (20 meters), the 8th is the SNR, and the
 9th is the offset in Hz.
 
-If your radio is a K3, Icom R75 or R8500, Ten-Tex RX-340, or AOR AR-5000,
+If your radio is a K3, Icom R75 or R8500, Ten-Tec RX-340, or AOR AR-5000,
 and it's connected by a serial connection, you can monitor JT65 while
 switching bands periodically, e.g:
 

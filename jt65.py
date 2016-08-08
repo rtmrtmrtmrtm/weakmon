@@ -82,7 +82,6 @@ class JT65:
       self.msgs_lock = thread.allocate_lock()
       self.msgs = [ ]
       self.verbose = False
-      self.hints = [ ] # each element is [ hz, call ] to look for
 
       self.jrate = 11025/2 # sample rate for processing (FFT &c)
       self.jblock = 4096/2 # samples per symbol
@@ -347,12 +346,10 @@ class JT65:
     # but only try through 40 this time, in order to
     # ensure there's time to start decoding on subtracted
     # signals before our alloted 10 seconds expires.
-    for hint in self.hints:
-      self.process1(samples_minute, samples, hint[0], hint[1], noise, None, already)
     i = 0
     while i < len(scores) and (time.time() - t0) < budget * pass1_frac:
         hz = scores[i][0] * (self.jrate / float(self.jblock))
-        x = self.process1(samples_minute, samples, hz, None, noise, scores[i][3], already)
+        x = self.process1(samples_minute, samples, hz, noise, scores[i][3], already)
         if x != None:
             scores[i][2] = False
             ssamples = self.subtract_v3(ssamples, x[0], x[1], x[4])
@@ -365,12 +362,10 @@ class JT65:
     # we do a complete new pass since a strong signal might have
     # been unreadable due to another signal at a somewhat higher
     # frequency.
-    for hint in self.hints:
-      self.process1(samples_minute, ssamples, hint[0], hint[1], noise, None, already)
     i = 0
     while i < len(scores) and (time.time() - t0) < budget:
         hz = scores[i][0] * (self.jrate / float(self.jblock))
-        x = self.process1(samples_minute, ssamples, hz, None, noise, scores[i][3], already)
+        x = self.process1(samples_minute, ssamples, hz, noise, scores[i][3], already)
         if x != None:
             ssamples = self.subtract_v3(ssamples, x[0], x[1], x[4])
         i += 1
@@ -431,7 +426,7 @@ class JT65:
   #
   # guess the sample number at which the first sync symbol starts.
   #
-  # this is basically never used any more; it seems more effective
+  # this is basically never used any more; it's a better use of CPU time
   # to just look for sync correlation at a bunch of sub-symbol offsets.
   #
   def guess_offset(self, samples, hz):
@@ -547,27 +542,18 @@ class JT65:
 
   # xhz is the sync tone frequency.
   # returns None or [ hz, start, nerrs, msg, twelve ]
-  # if hint!=None, it's some text to demand in the decode msg,
-  # to guide soft decode.
-  def process1(self, samples_minute, samples, xhz, hint, noise, start, already):
+  def process1(self, samples_minute, samples, xhz, noise, start, already):
     if len(samples) < 126*self.jblock:
         return None
 
     bin_hz = self.jrate / float(self.jblock) # FFT bin size, in Hz
 
-    if start != None:
-        ret = self.process1a(samples_minute, samples, xhz, hint, start, noise, already)
-        if ret != None:
-            return ret
-    else:
-        starts = self.guess_offset(samples, xhz)
-        for start in starts:
-            ret = self.process1a(samples_minute, samples, xhz, hint, start, noise, already)
-            if ret != None:
-                return ret
-    return None
+    # used to call guess_offset() here.
 
-  def process1a(self, samples_minute, samples, xhz, hint, start, noise, already):
+    ret = self.process1a(samples_minute, samples, xhz, start, noise, already)
+    return ret
+
+  def process1a(self, samples_minute, samples, xhz, start, noise, already):
     global hetero_thresh
 
     bin_hz = self.jrate / float(self.jblock) # FFT bin size, in Hz
@@ -650,7 +636,7 @@ class JT65:
         else:
             strength.append(0.0)
 
-    [ nerrs, msg, twelve ] = self.process2(sa, strength, hint)
+    [ nerrs, msg, twelve ] = self.process2(sa, strength)
 
     if nerrs < 0 or broken_msg(msg):
         return None
@@ -679,9 +665,7 @@ class JT65:
   # un-reed-solomoned, &c.
   # strength[] indicates how sure we are about each symbol
   #   (ratio of winning FFT bin to second-best bin).
-  # if hint!=None, it's some text to require in any
-  # soft-decoded message.
-  def process2(self, sa, strength, hint):
+  def process2(self, sa, strength):
     global soft_iters
 
     # un-gray-code
@@ -725,7 +709,6 @@ class JT65:
         worst = sorted(range(0, 63), key = lambda i: strength[i])
 
         # try various numbers of erasures.
-        first = None
         for iter in range(0, soft_iters):
             nera = (iter % 35) + 5
             eras = [ ]
@@ -741,11 +724,7 @@ class JT65:
                 msg = self.unpack(twelve)
                 if broken_msg(msg):
                     continue
-                if hint == None or hint in msg:
-                    if first != None:
-                        print "**** soft hint %s (ignored %s, hint %s, hint)" % (msg, first)
-                    return [nerrs, msg, twelve ]
-                first = msg
+                return [nerrs, msg, twelve ]
 
     # Reed Solomon could not decode.
     return [-1, "???", None ]
@@ -2169,23 +2148,6 @@ def benchmark(verbose):
         filename = "jt65files/" + bf[1]
         r = JT65()
         r.verbose = False
-
-        if True:
-            # test r.hints[]
-            hints = [ ]
-            for wsx in wsa:
-                wsx = wsx.strip()
-                m = re.search(r' ([0-9]+) +# (.*)', wsx)
-                if m != None:
-                    hz = float(m.group(1))
-                    txt = m.group(2)
-                    txt = txt.strip()
-                    txt = re.sub(r'  *', ' ', txt)
-                    a = txt.split(' ')
-                    while len(a) > 0 and (a[0] == 'CQ' or a[0] == 'DX'):
-                        a = a[1:]
-                    hints.append([ hz, a[0] ])
-            r.hints = hints
 
         r.gowav(filename, chan)
 
