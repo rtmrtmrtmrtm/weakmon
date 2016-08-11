@@ -623,20 +623,12 @@ def main():
   parser = weakargs.stdparse('Decode phase-shift WWVB.')
   parser.add_argument("-center", metavar='Hz', default=1000.0, type=float)
   parser.add_argument("-file")
-  args = parser.parse_args()
-  
-  # don't require -cat if the "card" is really a controllable
-  # radio itself.
-  if args.card != None and args.card[0] in [ "sdrip", "sdriq", "eb200" ] and args.cat == None:
-    args.cat = args.card
+  args = weakargs.parse_args(parser)
 
   if args.cat != None:
     cat = weakcat.open(args.cat)
     cat.set_usb_data()
     cat.setf(0, 59000)
-
-  if args.levels == True:
-    weakaudio.levels(args.card)
 
   if (args.card == None) == (args.file == None):
     parser.error("one of -card and -file are required")

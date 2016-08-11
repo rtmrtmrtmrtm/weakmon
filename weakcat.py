@@ -21,6 +21,7 @@ import time
 import sdrip
 import sdriq
 import eb200
+import sdrplay
 
 def open(desc):
     [type, dev] = desc
@@ -40,6 +41,8 @@ def open(desc):
         return SDRIQ(dev)
     if type == "eb200":
         return EB200(dev)
+    if type == "sdrplay":
+        return SDRplay(dev)
 
     sys.stderr.write("weakcat: unknown radio type %s\n" % (type))
     sys.exit(1)
@@ -67,7 +70,7 @@ def usage():
     for com in coms:
         sys.stderr.write("  %s\n" % (com))
     sys.stderr.write("radio types: ")
-    for ty in [ "k3", "rx340", "sdrip", "sdriq", "r75", "r8500", "ar5000", "eb200" ]:
+    for ty in [ "k3", "rx340", "sdrip", "sdriq", "r75", "r8500", "ar5000", "eb200", "sdrplay" ]:
         sys.stderr.write("%s " % (ty))
     sys.stderr.write("\n")
 
@@ -306,3 +309,17 @@ class EB200(object):
 
     def set_usb_data(self):
         self.eb200.set_usb_data()
+
+class SDRplay(object):
+    def __init__(self, devname):
+        self.sdr = sdrplay.open(devname)
+  
+    # send a no-op command and wait for the response.
+    def sync(self):
+        pass
+
+    def setf(self, vfo, fr):
+        self.sdr.setfreq(fr)
+
+    def set_usb_data(self):
+        pass

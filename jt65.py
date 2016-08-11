@@ -232,6 +232,10 @@ class JT65:
   def process(self, samples, samples_time):
     global budget, noffs, off_scores, pass1_frac
 
+    if False:
+        print "saving to aaa.wav, max %.0f" % (numpy.max(samples))
+        weakutil.writewav1(samples, "aaa.wav", self.cardrate)
+
     # for budget.
     t0 = time.time()
 

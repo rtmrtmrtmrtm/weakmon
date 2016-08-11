@@ -324,15 +324,8 @@ def main():
     parser = weakargs.stdparse('Decode JT65A.')
     parser.add_argument("-band")
     parser.add_argument("-card2", nargs=2, metavar=('CARD', 'CHAN'))
-    args = parser.parse_args()
 
-    # don't require -cat if the "card" is really a controllable
-    # radio itself.
-    if args.card != None and args.card[0] in [ "sdrip", "sdriq", "eb200" ] and args.cat == None:
-        args.cat = args.card
-
-    if args.levels == True:
-        weakaudio.levels(args.card)
+    args = weakargs.parse_args(parser)
         
     if args.card == None:
         parser.error("jt65mon requires -card")

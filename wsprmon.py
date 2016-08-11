@@ -398,15 +398,7 @@ def oldmain():
 def main():
     parser = weakargs.stdparse('Decode WSPR.')
     parser.add_argument("-band")
-    args = parser.parse_args()
-
-    # don't require -cat if the "card" is really a controllable
-    # radio itself.
-    if args.card != None and args.card[0] in [ "sdrip", "sdriq", "eb200" ] and args.cat == None:
-        args.cat = args.card
-    
-    if args.levels == True:
-        weakaudio.levels(args.card)
+    args = weakargs.parse_args(parser)
         
     if args.card == None:
         parser.error("wsprmon requires -card")

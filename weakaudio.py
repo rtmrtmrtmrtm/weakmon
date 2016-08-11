@@ -18,6 +18,7 @@ import weakutil
 import sdrip
 import sdriq
 import eb200
+import sdrplay
 
 # desc is [ "6", "0" ] for a sound card -- sixth card, channel 0 (left).
 # desc is [ "sdrip", "192.168.1.2" ] for RFSpace SDR-IP.
@@ -34,6 +35,9 @@ def new(desc, rate):
 
     if desc[0] == "eb200":
         return EB200(desc[1], rate)
+
+    if desc[0] == "sdrplay":
+        return SDRplay(desc[1], rate)
 
     sys.stderr.write("weakaudio: cannot understand card %s\n" % (desc[0]))
     usage()
@@ -366,6 +370,34 @@ class EB200:
             if len(buf) > 0:
                 print "avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf))
 
+class SDRplay:
+    def __init__(self, dev, rate):
+        self.rate = rate
+
+        self.sdr = sdrplay.open(dev)
+        self.sdrrate = self.sdr.getrate()
+
+        self.resampler = weakutil.Resampler(self.sdrrate, self.rate)
+
+    # returns [ buf, tm ]
+    # where tm is UNIX seconds of the last sample.
+    def read(self):
+        [ buf, buf_time ] = self.sdr.readiq()
+
+        buf = weakutil.iq2usb(buf) # I/Q -> USB
+
+        buf = self.resampler.resample(buf)
+
+        return [ buf, buf_time ]
+
+    # print levels, to help me adjust volume control.
+    def levels(self):
+        while True:
+            time.sleep(1)
+            [ buf, junk ] = self.read()
+            if len(buf) > 0:
+                print "avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf))
+
 #
 # for Usage(), print out a list of audio cards
 # and associated number (for the "card" argument).
@@ -395,6 +427,7 @@ def usage():
     sys.stderr.write("  or -card sdrip IPADDR\n")
     sys.stderr.write("  or -card sdriq /dev/SERIALPORT\n")
     sys.stderr.write("  or -card eb200 IPADDR\n")
+    sys.stderr.write("  or -card sdrplay sdrplay\n")
 
 # implement -levels.
 # print sound card avg/peak once per second, to adjust level.

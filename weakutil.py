@@ -11,6 +11,7 @@ import ConfigParser
 import numpy
 import scipy
 import wave
+import time
 
 def cfg(program, key):
     cfg = ConfigParser.SafeConfigParser()
@@ -171,8 +172,8 @@ class Resampler:
         if self.from_rate > self.to_rate:
             # prepare a filter to precede resampling.
             self.filter = butter_lowpass(0.45 * self.to_rate,
-                                                  from_rate,
-                                                  10)
+                                         from_rate,
+                                         7)
             self.zi = scipy.signal.lfiltic(self.filter[0],
                                            self.filter[1],
                                            [0])

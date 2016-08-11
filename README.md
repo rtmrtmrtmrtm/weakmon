@@ -1,9 +1,9 @@
 # weakmon
 
 These are command-line Python programs to monitor WSPR and JT65A,
-printing receptions and reporting them to wsprnet and pskreporter. For
-the radios the software understands, it will switch bands
-automatically. The software works on Macs, Linux, and FreeBSD.
+printing receptions and reporting them to wsprnet and pskreporter.
+The programs with switch among bands automatically on a few radio types.
+The software works on Macs, Linux, and FreeBSD.
 
 I've borrowed code and ideas from Joe Taylor, Phil Karn, and others
 identified in comments in the code.
@@ -48,13 +48,11 @@ like this:
     or -card sdrip IPADDR
     or -card sdriq /dev/SERIALPORT
     or -card eb200 IPADDR
+    or -card sdrplay sdrplay
   serial devices:
-    /dev/cu.Bluetooth-Incoming-Port
     /dev/cu.usbserial-FTXVKSG8A
     /dev/cu.usbserial-FTXVKSG8D
-    /dev/cu.usbserial-FTXVKSG8B
-    /dev/cu.usbserial-FTXVKSG8C
-  radio types: k3 rx340 sdrip sdriq r75 r8500 ar5000 eb200
+  radio types: k3 rx340 sdrip sdriq r75 r8500 ar5000 eb200 sdrplay
 ```
 
 If I hook my radio's audio output up to my iMic USB sound card input,
@@ -80,17 +78,23 @@ and it's connected by a serial connection, you can monitor JT65 while
 switching bands periodically, e.g:
 
 ```
-  % python2.7 jt65mon.py -card 2 0 -cat k3 /dev/cu.usbserial-FTXVKSG8A
+  % python2.7 jt65mon.py -card 2 0 -cat k3 /dev/cu.usbserial-FTXVKSG8A -v
 ```
 
 You may need to take steps to give yourself permission to use the
 serial device (change its mode or put yourself in the appropriate
 group).
 
+For an SDRplay RSP:
+
+```
+  % python2.7 jt65mon.py -card sdrplay -v
+```
+
 For an RFSpace SDR-IP or NetSDR at IP address 10.0.0.2:
 
 ```
-  % python2.7 jt65mon.py -card sdrip 10.0.0.2 -cat sdrip 10.0.0.2
+  % python2.7 jt65mon.py -card sdrip 10.0.0.2 -cat sdrip 10.0.0.2 -v
 ```
 
 Use the -levels flag to help you adjust the audio level from the

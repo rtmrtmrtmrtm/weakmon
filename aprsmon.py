@@ -10,6 +10,7 @@
 import aprsrecv
 import weakargs
 import weakaudio
+import weakcat
 import sys
 
 def cb(start, n, fate, msg):
@@ -21,15 +22,12 @@ def cb(start, n, fate, msg):
 
 def main():
     parser = weakargs.stdparse('Decode APRS.')
-    args = parser.parse_args()
+    args = weakargs.parse_args(parser)
     
     if args.cat != None:
         cat = weakcat.open(args.cat)
         # really should be a way to set FM.
         cat.setf(0, 144390000)
-
-    if args.levels == True:
-        weakaudio.levels(args.card)
 
     if args.card == None:
         parser.error("aprsmon requires -card")
