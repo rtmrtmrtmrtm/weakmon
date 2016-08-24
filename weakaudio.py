@@ -112,7 +112,8 @@ class Stream:
         # so on startup we need to find diff against time.time()
 
         pcm = numpy.fromstring(in_data, dtype=numpy.int16)
-        pcm = pcm[self.chan::2] # chan is 0/1 for left/right
+        if self.chan == 1:
+            pcm = pcm[self.chan::2]
 
         # time of first sample in pcm[].
         adc_time = time_info['input_buffer_adc_time']
@@ -137,9 +138,13 @@ class Stream:
 
         self.cardrate = self.pya_rate(self.rate)
 
+        # only ask for 2 channels if we want channel 1,
+        # since some sound cards are mono.
+        chans = self.chan + 1
+
         self.pya_strm = pya().open(format=pyaudio.paInt16,
                                    input_device_index=self.card,
-                                   channels=2,
+                                   channels=chans,
                                    rate=self.cardrate,
                                    frames_per_buffer=self.cardrate,
                                    stream_callback=self.pya_callback,
@@ -158,7 +163,7 @@ class Stream:
                     ok = pya().is_format_supported(r,
                                                    input_device=self.card,
                                                    input_format=pyaudio.paInt16,
-                                                   input_channels=2)
+                                                   input_channels=1)
                 except:
                     pass
                 if ok:
@@ -409,8 +414,8 @@ def usage():
     for i in range(0, ndev):
         info = pya().get_device_info_by_index(i) 
         sys.stderr.write("  %d: %s, channels=%d" % (i,
-                                                      info['name'],
-                                                      info['maxInputChannels']))
+                                                    info['name'],
+                                                    info['maxInputChannels']))
         if True and info['maxInputChannels'] > 0:
             rates = [ 11025, 12000, 16000, 22050, 44100, 48000 ]
             for rate in rates:
@@ -418,7 +423,7 @@ def usage():
                     ok = pya().is_format_supported(rate,
                                                    input_device=i,
                                                    input_format=pyaudio.paInt16,
-                                                   input_channels=2)
+                                                   input_channels=1)
                 except:
                     ok = False
                 if ok:
