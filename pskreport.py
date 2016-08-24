@@ -160,14 +160,3 @@ class T:
             self.send(pkt)
             self.pending = [ ]
             self.last_send = time.time()
-    
-if __name__ == '__main__':
-    pskr = T("AB1HL", "FN42", "weakmon 0.2", True)
-
-    #pkt = pskr.fmt([ [ "W1WW", 10138000, "CW", "EM11", time.time() ],
-    #                 [ "K1D", 14076000, "JT65", "DD14", time.time() ] ])
-    #pskr.dump(pkt)
-    #pskr.send(pkt)
-
-    pskr.got("W1WW", 10138000, "CW", "EM11", time.time())
-    pskr.got("K1D", 14076000, "JT65", "DD14", time.time())

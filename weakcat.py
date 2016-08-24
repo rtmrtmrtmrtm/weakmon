@@ -135,7 +135,7 @@ class K3(object):
     # DATA. DATA A. USB. 2.8 khz.
     # need to do it for each ham band.
     def set_usb_data(self):
-        for mhz in [ 1.8, 3.5, 7.0, 10.1, 14.0, 18.068, 21.0, 24.890, 28.0 ]:
+        for mhz in [ 3.576, 7.076, 10.138, 14.076, 18.102, 21.076, 24.917, 28.076 ]:
             self.setf(0, int(mhz * 1000000))
             self.cmd("MD6") # DATA
             self.cmd("DT0") # DATA A

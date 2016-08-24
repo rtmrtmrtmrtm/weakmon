@@ -5,8 +5,9 @@ printing receptions and reporting them to wsprnet and pskreporter.
 The programs with switch among bands automatically on a few radio types.
 The software works on Macs, Linux, and FreeBSD.
 
-I've borrowed code and ideas from Joe Taylor, Phil Karn, and others
-identified in comments in the code.
+While these programs don't use Joe Taylor's WSJT software, they do
+incorporate ideas from that software. These programs use Phil Karn's
+Reed-Solomon and convolutional decoders.
 
 The software depends on a few packages. Here's how to install them
 on Ubuntu Linux:

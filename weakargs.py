@@ -5,6 +5,7 @@
 import argparse
 import sys
 import weakaudio
+import weakcat
 import time
 
 #
@@ -22,6 +23,7 @@ def stdparse(description):
   def myerror(message):
     parser.print_usage(sys.stderr)
     weakaudio.usage()
+    weakcat.usage()
     parser.exit(2, ('%s: error: %s\n') % (parser.prog, message))
 
   parser.error = myerror
