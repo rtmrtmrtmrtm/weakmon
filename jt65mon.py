@@ -195,20 +195,43 @@ class JT65Mon:
             f.write(info + "\n")
             f.close()
             
-            # send CQs that don't have too many errors to pskreporter.
+            # send msgs that don't have too many errors to pskreporter.
             # the 30 here suppresses some good CQ receptions, but
             # perhaps better that than reporting erroneous decodes.
             if (nerrs[0] >= 0 and nerrs[0] < 30) or (nerrs[1] >= 0 and nerrs[1] < 30):
                 txt = m[2]
-                # normalize
-                txt = re.sub(r'  *', ' ', txt)
-                txt = re.sub(r'CQ DX ', 'CQ ', txt)
-                mm = re.search(r'^CQ ([0-9A-Z/]+) ([A-R][A-R][0-9][0-9])$', txt)
-                if mm != None and self.pskr != None:
-                    hz = m[1] + int(b2f[band] * 1000000.0)
-                    self.pskr.got(mm.group(1), hz, "JT65", mm.group(2), m[3])
+                hz = m[1] + int(b2f[band] * 1000000.0)
+                tm = m[3]
+                self.maybe_pskr(txt, hz, tm)
 
         return all
+
+    # report to pskreporter if we can figure out the originating
+    # call and grid.
+    def maybe_pskr(self, txt, hz, tm):
+        if self.pskr == None:
+            return
+        txt = txt.strip()
+        txt = re.sub(r'  *', ' ', txt)
+        txt = re.sub(r'CQ DX ', 'CQ ', txt)
+        txt = re.sub(r'CQDX ', 'CQ ', txt)
+        mm = re.search(r'^CQ ([0-9A-Z/]+) ([A-R][A-R][0-9][0-9])$', txt)
+        if mm != None and self.iscall(mm.group(1)):
+            self.pskr.got(mm.group(1), hz, "JT65", mm.group(2), tm)
+            return
+        mm = re.search(r'^([0-9A-Z/]+) ([0-9A-Z/]+) ([A-R][A-R][0-9][0-9])$', txt)
+        if mm != None and self.iscall(mm.group(1)) and self.iscall(mm.group(2)):
+            self.pskr.got(mm.group(2), hz, "JT65", mm.group(3), tm)
+            return
+
+    # does call look syntactically correct?
+    def iscall(self, call):
+        if len(call) < 3:
+            return False
+        if re.search(r'[0-9][A-Z]', call) == None:
+            # no digit
+            return False
+        return True
 
     # return two bands to listen for CQs on.
     # specialized to two receivers. doesn't work for
