@@ -83,6 +83,7 @@ class Stream:
 
     # returns [ buf, tm ]
     # where tm is UNIX seconds of the last sample.
+    # non-blocking.
     def read(self):
         self.cardlock.acquire()
         buf = self.cardbuf
@@ -90,7 +91,8 @@ class Stream:
         self.cardbuf = numpy.array([])
         self.cardlock.release()
 
-        buf = self.resampler.resample(buf)
+        if len(buf) > 0:
+            buf = self.resampler.resample(buf)
 
         return [ buf, buf_time ]
 
