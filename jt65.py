@@ -66,7 +66,8 @@ NGBASE = 180*180
 # mistakenly from noise by the reed-solomon decoder?
 def broken_msg(msg):
     bads = [ "OL6MWK", "1S9LND", "9M3QHC", "TIKK+", "J87FOE", "000AAA",
-             "TG7HQQ", "475IVR", "L16RAH", "XO2QLH" ]
+             "TG7HQQ", "475IVR", "L16RAH", "XO2QLH", "5E8HML", "HF7VBA",
+             "F11XTN", "7T4EUZ", "EF5KYD", "A80CCM", "HF7VBA" ]
     for bad in bads:
         if bad in msg:
             return True
