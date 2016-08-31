@@ -29,6 +29,8 @@ def open(desc):
         return K3(dev)
     if type == "rx340":
         return RX340(dev)
+    if type == "8711":
+        return WJ8711(dev)
     if type == "r75":
         return R75(dev, 0x5A)
     if type == "r8500":
@@ -70,7 +72,7 @@ def usage():
     for com in coms:
         sys.stderr.write("  %s\n" % (com))
     sys.stderr.write("radio types: ")
-    for ty in [ "k3", "rx340", "sdrip", "sdriq", "r75", "r8500", "ar5000", "eb200", "sdrplay" ]:
+    for ty in [ "k3", "rx340", "8711", "sdrip", "sdriq", "r75", "r8500", "ar5000", "eb200", "sdrplay" ]:
         sys.stderr.write("%s " % (ty))
     sys.stderr.write("\n")
 
@@ -178,6 +180,33 @@ class RX340(object):
         self.cmd("I2.0") # b/w 2 khz
         self.cmd("K1") # preamp off, att off
         self.cmd("M1") # fast AGC
+
+# Watkins Johnson WJ-8711, HF-1000, etc.
+class WJ8711(object):
+    def __init__(self, devname):
+        self.port = serial.Serial(devname,
+                                  timeout=2,
+                                  baudrate=9600,
+                                  parity=serial.PARITY_NONE,
+                                  bytesize=serial.EIGHTBITS)
+        
+    def cmd(self, s):
+        self.port.write("\r%s\r" % (s))
+        time.sleep(0.05)
+  
+    # send a no-op command and wait for the response.
+    def sync(self):
+        pass
+
+    # set the frequeny in Hz for vfo=0 (A) or vfo=1 (B / sub-receiver).
+    # does not wait.
+    def setf(self, vfo, fr):
+        self.cmd("FRQ %.6f" % (fr / 1000000.0))
+
+    def set_usb_data(self):
+        self.cmd("DET 4") # USB
+        self.cmd("BWC 2800") # b/w
+        self.cmd("AGC 2") # fast AGC
 
 class SDRIP(object):
     def __init__(self, devname):
