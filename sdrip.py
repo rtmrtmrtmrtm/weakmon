@@ -1,5 +1,5 @@
 #
-# Control an RFSpace SDR-IP (and probably a NetSDR).
+# Control an RFSpace SDR-IP or NetSDR.
 #
 # Example:
 #   sdr = sdrip.open("192.168.3.125")
