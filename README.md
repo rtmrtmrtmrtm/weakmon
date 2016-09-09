@@ -53,7 +53,7 @@ like this:
   serial devices:
     /dev/cu.usbserial-FTXVKSG8A
     /dev/cu.usbserial-FTXVKSG8D
-  radio types: k3 rx340 sdrip sdriq r75 r8500 ar5000 eb200 sdrplay
+  radio types: k3 rx340 8711 sdrip sdriq r75 r8500 ar5000 eb200 sdrplay
 ```
 
 If I hook my radio's audio output up to my iMic USB sound card input,
@@ -74,9 +74,9 @@ a few minutes I might see output like this:
 The 3rd column is the band (20 meters), the 8th is the SNR, and the
 9th is the offset in Hz.
 
-If your radio is a K3, Icom R75 or R8500, Ten-Tec RX-340, or AOR AR-5000,
-and it's connected by a serial connection, you can monitor JT65 while
-switching bands periodically, e.g:
+If your radio is an Elecraft K3, Icom R75 or R8500, Ten-Tec RX-340,
+WJ-8711, or AOR AR-5000, and it's connected by a serial connection,
+you can monitor JT65 while switching bands periodically, e.g:
 
 ```
   % python2.7 jt65mon.py -card 2 0 -cat k3 /dev/cu.usbserial-FTXVKSG8A -v
@@ -92,7 +92,7 @@ For an SDRplay RSP:
   % python2.7 jt65mon.py -card sdrplay -v
 ```
 
-For an RFSpace SDR-IP or NetSDR at IP address 10.0.0.2:
+For an RFSpace CloudIQ / NetSDR / SDR-IP at IP address 10.0.0.2:
 
 ```
   % python2.7 jt65mon.py -card sdrip 10.0.0.2 -cat sdrip 10.0.0.2 -v
