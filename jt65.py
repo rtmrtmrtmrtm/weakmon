@@ -68,7 +68,8 @@ def broken_msg(msg):
     bads = [ "OL6MWK", "1S9LND", "9M3QHC", "TIKK+", "J87FOE", "000AAA",
              "TG7HQQ", "475IVR", "L16RAH", "XO2QLH", "5E8HML", "HF7VBA",
              "F11XTN", "7T4EUZ", "EF5KYD", "A80CCM", "HF7VBA",
-             "VV3EZD", "DT8ZBT", "8Z9RTD", "7U0NNP" ]
+             "VV3EZD", "DT8ZBT", "8Z9RTD", "7U0NNP", "6P8CGY", "WH9ASY",
+             "V96TCU", "BF3AUF", "7B5JDP" ]
     for bad in bads:
         if bad in msg:
             return True
@@ -1040,8 +1041,7 @@ class JT65Send:
 
         # never finished this -- no text &c.
         sys.stderr.write("JT65Send.pack(%s) -- cannot parse\n" % (msg))
-        sys.exit(1)
-
+        # sys.exit(1)
         return [0] * 12
 
     def testpack(self):
@@ -2259,7 +2259,7 @@ def main():
       i += 2
     else:
       usage()
-  
+
   if send_msg != None:
       js = JT65Send()
       js.send(send_msg)
