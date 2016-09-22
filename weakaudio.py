@@ -62,6 +62,44 @@ def pya():
         os.close(nullfd)
     return global_pya
 
+# find the lowest supported input rate >= rate.
+# needed on Linux but not the Mac (which converts as needed).
+def pya_input_rate(card, rate):
+    import pyaudio
+    rates = [ rate, 8000, 11025, 12000, 16000, 22050, 44100, 48000 ]
+    for r in rates:
+        if r >= rate:
+            ok = False
+            try:
+                ok = pya().is_format_supported(r,
+                                               input_device=card,
+                                               input_format=pyaudio.paInt16,
+                                               input_channels=1)
+            except:
+                pass
+            if ok:
+                return r
+    sys.stderr.write("weakaudio: no input rate >= %d\n" % (rate))
+    sys.exit(1)
+
+def pya_output_rate(card, rate):
+    import pyaudio
+    rates = [ rate, 8000, 11025, 12000, 16000, 22050, 44100, 48000 ]
+    for r in rates:
+        if r >= rate:
+            ok = False
+            try:
+                ok = pya().is_format_supported(r,
+                                               output_device=card,
+                                               output_format=pyaudio.paInt16,
+                                               output_channels=1)
+            except:
+                pass
+            if ok:
+                return r
+    sys.stderr.write("weakaudio: no output rate >= %d\n" % (rate))
+    sys.exit(1)
+
 class Stream:
     def __init__(self, card, chan, rate):
         self.use_oss = ("freebsd" in sys.platform)
@@ -138,7 +176,7 @@ class Stream:
     def pya_open(self):
         import pyaudio
 
-        self.cardrate = self.pya_rate(self.rate)
+        self.cardrate = pya_input_rate(self.card, self.rate)
 
         # only ask for 2 channels if we want channel 1,
         # since some sound cards are mono.
@@ -152,26 +190,6 @@ class Stream:
                                    stream_callback=self.pya_callback,
                                    output=False,
                                    input=True)
-
-    # find the lowest supported rate >= rate.
-    # needed on Linux but not the Mac (which converts as needed).
-    def pya_rate(self, rate):
-        import pyaudio
-        rates = [ rate, 8000, 11025, 12000, 16000, 22050, 44100, 48000 ]
-        for r in rates:
-            if r >= rate:
-                ok = False
-                try:
-                    ok = pya().is_format_supported(r,
-                                                   input_device=self.card,
-                                                   input_format=pyaudio.paInt16,
-                                                   input_channels=1)
-                except:
-                    pass
-                if ok:
-                    return r
-        sys.stderr.write("weakaudio: can't find a supported rate >= %d\n" % (rate))
-        sys.exit(1)
 
     def oss_open(self):
         import ossaudiodev
