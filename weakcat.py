@@ -45,6 +45,8 @@ def open(desc):
         return EB200(dev)
     if type == "sdrplay":
         return SDRplay(dev)
+    if type == "prc138":
+        return PRC138(dev)
 
     sys.stderr.write("weakcat: unknown radio type %s\n" % (type))
     sys.exit(1)
@@ -72,7 +74,7 @@ def usage():
     for com in coms:
         sys.stderr.write("  %s\n" % (com))
     sys.stderr.write("radio types: ")
-    for ty in [ "k3", "rx340", "8711", "sdrip", "sdriq", "r75", "r8500", "ar5000", "eb200", "sdrplay" ]:
+    for ty in [ "k3", "rx340", "8711", "sdrip", "sdriq", "r75", "r8500", "ar5000", "eb200", "sdrplay", "prc138" ]:
         sys.stderr.write("%s " % (ty))
     sys.stderr.write("\n")
 
@@ -323,6 +325,131 @@ class AR5000(object):
         self.cmd("BW1") # 3 khz
         self.cmd("AC0") # fast AGC
 
+class PRC138(object):
+    def __init__(self, devname):
+        self.port = serial.Serial(devname,
+                                  timeout=2,
+                                  baudrate=9600,
+                                  parity=serial.PARITY_NONE,
+                                  bytesize=serial.EIGHTBITS)
+
+        # input buffer
+        self.buf = ""
+
+        self.port.write("\r")
+        self.prompt()
+        self.port.write("PORT_R EC OF\r") # don't echo commands
+        self.prompt()
+    
+    def readline(self, retprompt=False):
+        while True:
+            if retprompt and "SSB>" in self.buf:
+                self.buf = ""
+                return "SSB>"
+            i = self.buf.find('\r')
+            if i == -1:
+                i = self.buf.find('\n')
+            if i != -1:
+                r = self.buf[0:i]
+                self.buf = self.buf[i+1:]
+                return r
+            z = self.port.read()
+            self.buf += z
+
+    # wait for a prompt
+    def prompt(self):
+        while True:
+            x = self.readline(True)
+            if x == "SSB>":
+                return True
+
+    # we're expecting some information from the radio in
+    # response to a command, starting with the word prefix; get it
+    # and return the info.
+    def scan(self, prefix):
+        while True:
+            x = self.readline()
+            while len(x) > 0 and (x[-1] == '\r' or x[-1] == '\n'):
+                x = x[0:-1]
+            #print "readline: %s" % (x)
+            a = x.split(" ")
+            if len(a) >= 2:
+                if a[0] == prefix:
+                    return a[1]
+        
+    def cmd(self, cmd):
+        self.port.write(cmd + "\r")
+        time.sleep(0.1)
+
+    # send a no-op command wait for SSB> to make sure
+    # the radio is really there and that we eat all
+    # pending input.
+    def sync(self):
+        self.cmd("TIME")
+        self.scan("DATE")
+        self.prompt()
+        [ rx, tx ] = self.get_fr()
+        mode = self.get_mode()
+        bw = self.get_bw()
+        print "prc138 sync %d %d %s %.1f" % (rx, tx, mode, bw)
+
+    def get_fr(self):
+        self.port.write("FR\r")
+        rx = self.scan("RxFr")
+        tx = self.scan("TxFr")
+        self.prompt()
+        return [ int(rx), int(tx) ]
+
+    def get_mode(self):
+        self.port.write("MODE\r")
+        x = self.scan("MODE")
+        self.prompt()
+        return x
+
+    def get_bw(self):
+        self.port.write("BAND\r")
+        x = self.scan("BAND")
+        self.prompt()
+        return float(x)
+
+    # USB, LSB, AME, CW, FM
+    def set_mode(self, mode):
+        self.port.write("MODE %s\r" % (mode))
+        self.prompt()
+
+    # OFF, SLOW, MED, FAST, DATA
+    def set_agc(self, agc):
+        self.port.write("AGC %s\r" % (agc))
+        self.prompt()
+
+    # LOW, MED, HIGH
+    def set_pow(self, pow):
+        self.port.write("POW %s\r" % (pow))
+        self.prompt()
+
+    # kHz (2.4, 2.7, 3.0 for ssb)
+    def set_bw(self, bw):
+        self.port.write("BA %.3f\r" % (bw))
+        self.prompt()
+
+    # set both rx and tx, in hz.
+    # prc-138 demands exactly 8 digits.
+    def setf(self, vfo, fr):
+        assert vfo == 0
+        cmd = "FR %08d" % (int(fr))
+        self.port.write(cmd + "\r")
+        self.prompt()
+
+    # ask coupler to re-tune.
+    def retune(self):
+        self.port.write("RETUNE\r")
+        self.prompt()
+
+    def set_usb_data(self):
+        self.set_mode("USB")
+        self.set_agc("DATA")
+        self.set_pow("HIGH")
+        self.set_bw(2.7)
 
 class EB200(object):
     def __init__(self, devname):
