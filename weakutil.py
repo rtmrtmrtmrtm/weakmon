@@ -10,6 +10,7 @@
 import ConfigParser
 import numpy
 import scipy
+import scipy.signal
 import wave
 import time
 
@@ -213,6 +214,19 @@ class Resampler:
 
         return buf
 
+# apply automatic gain control.
+# causes each winlen window of samples
+# to have average absolute value of 1.0.
+# winlen is in units of samples.
+def agc(samples, winlen):
+    agcwin = scipy.signal.tukey(winlen)
+    agcwin = agcwin / numpy.sum(agcwin)
+    mavg = numpy.convolve(abs(samples), agcwin)[winlen/2:]
+    mavg = mavg[0:len(samples)]
+    samples = numpy.divide(samples, mavg)
+    samples = numpy.nan_to_num(samples)
+    return samples
+
 # write a mono file
 def writewav1(left, filename, rate):
   ww = wave.open(filename, 'w')
@@ -261,6 +275,40 @@ def writewav2(left, right, filename, rate):
   ww.writeframes(a)
 
   ww.close()
+
+# read a whole mono wav file.
+# return None or [ rate, samples ].
+def readwav(filename):
+    w = wave.open(filename)
+    channels = w.getnchannels()
+    width = w.getsampwidth()
+    rate = w.getframerate()
+
+    if width != 1 and width != 2:
+        sys.stderr.write("oops width %d in %s" % (width, filename))
+        w.close()
+        return None
+    if channels != 1 and channels != 2:
+        sys.stderr.write("oops channels %d in %s" % (channels, filename))
+        w.close()
+        return None
+
+    samples = numpy.array([])
+    while True:
+        z = w.readframes(8192)
+        if len(z) < 1:
+            break
+        if width == 1:
+            zz = numpy.fromstring(z, numpy.int8)
+        else:
+            assert (len(z) % 2) == 0
+            zz = numpy.fromstring(z, numpy.int16)
+        if channels == 2:
+            zz = zz[0::2] # left channel
+        samples = numpy.append(samples, zz)
+
+    w.close()
+    return [ rate, samples ]
 
 #
 # gray code
