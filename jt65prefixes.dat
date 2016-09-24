@@ -201,6 +201,7 @@ AJ      United States
 AK      United States
 AC6 	West Carolines
 AC6ZM   United States
+AC6VW   United States
 AH0 	Mariana Is
 AH0U    United States
 AH1 	Baker Howland
@@ -833,7 +834,8 @@ R1 	European Russia
 R1AN 	Antarctica
 R1FJ 	Franz Jo Land
 R1MV 	Malyj Vysotskij
-R2 	Kaliningrad
+R2F	Kaliningrad
+R2K	Kaliningrad
 R3 	European Russia
 R4 	European Russia
 R5 	European Russia
@@ -843,7 +845,8 @@ R8 	Asiatic Russia
 R9 	Asiatic Russia
 RA0 	Asiatic Russia
 RA1 	European Russia
-RA2 	Kaliningrad
+RA2F	Kaliningrad
+RA2K	Kaliningrad
 RA3 	European Russia
 RA4 	European Russia
 RA5 	European Russia
@@ -853,7 +856,8 @@ RA8 	Asiatic Russia
 RA9 	Asiatic Russia
 RB0 	Asiatic Russia
 RB1 	European Russia
-RB2 	Kaliningrad
+RB2F	Kaliningrad
+RB2K	Kaliningrad
 RB3 	European Russia
 RB4 	European Russia
 RB5 	European Russia
@@ -863,7 +867,8 @@ RB8 	Asiatic Russia
 RB9 	Asiatic Russia
 RC0 	Asiatic Russia
 RC1 	European Russia
-RC2 	Kaliningrad
+RC2F	Kaliningrad
+RC2K	Kaliningrad
 RC3 	European Russia
 RC4 	European Russia
 RC5 	European Russia
@@ -873,7 +878,8 @@ RC8 	Asiatic Russia
 RC9 	Asiatic Russia
 RD0 	Asiatic Russia
 RD1 	European Russia
-RD2	Kaliningrad
+RD2F    Kaliningrad
+RD2K	Kaliningrad
 RD3 	European Russia
 RD4 	European Russia
 RD5 	European Russia
@@ -883,7 +889,8 @@ RD8 	Asiatic Russia
 RD9 	Asiatic Russia
 RE0 	Asiatic Russia
 RE1 	European Russia
-RE2 	Kaliningrad
+RE2F	Kaliningrad
+RE2K	Kaliningrad
 RE3 	European Russia
 RE4 	European Russia
 RE5 	European Russia
@@ -893,7 +900,8 @@ RE8 	Asiatic Russia
 RE9 	Asiatic Russia
 RF0 	Asiatic Russia
 RF1 	European Russia
-RF2 	Kaliningrad
+RF2F	Kaliningrad
+RF2K	Kaliningrad
 RF3 	European Russia
 RF4 	European Russia
 RF5 	European Russia
@@ -902,7 +910,8 @@ RF7 	Asiatic Russia
 RF8 	Asiatic Russia
 RF9 	Asiatic Russia
 RG1 	European Russia
-RG2 	Kaliningrad
+RG2F	Kaliningrad
+RG2K	Kaliningrad
 RG3 	European Russia
 RG4 	European Russia
 RG5 	European Russia
@@ -912,7 +921,8 @@ RG8 	Asiatic Russia
 RG9 	Asiatic Russia
 RH0 	Asiatic Russia
 RH1 	European Russia
-RH2 	Kaliningrad
+RH2F	Kaliningrad
+RH2K	Kaliningrad
 RH3 	European Russia
 RH4 	European Russia
 RH5 	European Russia
@@ -923,7 +933,8 @@ RH9 	Asiatic Russia
 RI0 	Asiatic Russia
 RI1 	European Russia
 RI1AN   Antarctica
-RI2 	Kaliningrad
+RI2F	Kaliningrad
+RI2K	Kaliningrad
 RI3 	European Russia
 RI4 	European Russia
 RI5 	European Russia
@@ -933,7 +944,8 @@ RI8 	Asiatic Russia
 RI9 	Asiatic Russia
 RJ0 	Asiatic Russia
 RJ1 	European Russia
-RJ2 	Kaliningrad
+RJ2F	Kaliningrad
+RJ2K	Kaliningrad
 RJ3 	European Russia
 RJ4 	European Russia
 RJ5 	European Russia
@@ -943,7 +955,8 @@ RJ8 	Asiatic Russia
 RJ9 	Asiatic Russia
 RK0 	Asiatic Russia
 RK1 	European Russia
-RK2 	Kaliningrad
+RK2F	Kaliningrad
+RK2K	Kaliningrad
 RK3 	European Russia
 RK4 	European Russia
 RK5 	European Russia
@@ -953,7 +966,8 @@ RK8 	Asiatic Russia
 RK9 	Asiatic Russia
 RL0 	Asiatic Russia
 RL1 	European Russia
-RL2 	Kaliningrad
+RL2F	Kaliningrad
+RL2K	Kaliningrad
 RL3 	European Russia
 RL4 	European Russia
 RL5 	European Russia
@@ -963,7 +977,8 @@ RL8 	Asiatic Russia
 RL9 	Asiatic Russia
 RM0 	Asiatic Russia
 RM1 	European Russia
-RM2 	Kaliningrad
+RM2F	Kaliningrad
+RM2K	Kaliningrad
 RM3 	European Russia
 RM4 	European Russia
 RM5 	European Russia
@@ -973,7 +988,8 @@ RM8 	Asiatic Russia
 RM9 	Asiatic Russia
 RN0 	Asiatic Russia
 RN1 	European Russia
-RN2 	Kaliningrad
+RN2F	Kaliningrad
+RN2K	Kaliningrad
 RN3 	European Russia
 RN4 	European Russia
 RN5 	European Russia
@@ -983,7 +999,8 @@ RN8 	Asiatic Russia
 RN9 	Asiatic Russia
 RO0 	Asiatic Russia
 RO1 	European Russia
-RO2 	Kaliningrad
+RO2F	Kaliningrad
+RO2K	Kaliningrad
 RO3 	European Russia
 RO4 	European Russia
 RO5 	European Russia
@@ -993,7 +1010,8 @@ RO8 	Asiatic Russia
 RO9 	Asiatic Russia
 RP0 	Asiatic Russia
 RP1 	European Russia
-RP2 	Kaliningrad
+RP2F	Kaliningrad
+RP2K	Kaliningrad
 RP3 	European Russia
 RP4 	European Russia
 RP5 	European Russia
@@ -1003,7 +1021,8 @@ RP8 	Asiatic Russia
 RP9 	Asiatic Russia
 RQ0 	Asiatic Russia
 RQ1 	European Russia
-RQ2 	Kaliningrad
+RQ2F	Kaliningrad
+RQ2K	Kaliningrad
 RQ3 	European Russia
 RQ4 	European Russia
 RQ5 	European Russia
@@ -1013,7 +1032,8 @@ RQ8 	Asiatic Russia
 RQ9 	Asiatic Russia
 RR0 	Asiatic Russia
 RR1 	European Russia
-RR2 	Kaliningrad
+RR2F	Kaliningrad
+RR2K	Kaliningrad
 RR3 	European Russia
 RR4 	European Russia
 RR5 	European Russia
@@ -1023,7 +1043,8 @@ RR8 	Asiatic Russia
 RR9 	Asiatic Russia
 RS0 	Asiatic Russia
 RS1 	European Russia
-RS2 	Kaliningrad
+RS2F	Kaliningrad
+RS2K	Kaliningrad
 RS3     European Russia
 RS4     European Russia
 RS5 	European Russia
@@ -1033,7 +1054,8 @@ RS8 	Asiatic Russia
 RS9 	Asiatic Russia
 RT0 	Asiatic Russia
 RT1 	European Russia
-RT2 	Kaliningrad
+RT2F	Kaliningrad
+RT2K	Kaliningrad
 RT3 	European Russia
 RT4 	European Russia
 RT5 	European Russia
@@ -1043,7 +1065,8 @@ RT8 	Asiatic Russia
 RT9 	Asiatic Russia
 RU0 	Asiatic Russia
 RU1 	European Russia
-RU2 	Kaliningrad
+RU2F	Kaliningrad
+RU2K	Kaliningrad
 RU3 	European Russia
 RU4 	European Russia
 RU5 	European Russia
@@ -1053,7 +1076,8 @@ RU8 	Asiatic Russia
 RU9 	Asiatic Russia
 RV0 	Asiatic Russia
 RV1 	European Russia
-RV2 	Kaliningrad
+RV2F	Kaliningrad
+RV2K	Kaliningrad
 RV3 	European Russia
 RV4 	European Russia
 RV5 	European Russia
@@ -1063,7 +1087,8 @@ RV8 	Asiatic Russia
 RV9 	Asiatic Russia
 RW0 	Asiatic Russia
 RW1 	European Russia
-RW2 	Kaliningrad
+RW2F	Kaliningrad
+RW2K	Kaliningrad
 RW3 	European Russia
 RW4 	European Russia
 RW5 	European Russia
@@ -1073,7 +1098,8 @@ RW8 	Asiatic Russia
 RW9 	Asiatic Russia
 RX0 	Asiatic Russia
 RX1 	European Russia
-RX2 	Kaliningrad
+RX2F	Kaliningrad
+RX2K	Kaliningrad
 RX3 	European Russia
 RX4 	European Russia
 RX5 	European Russia
@@ -1083,7 +1109,8 @@ RX8 	Asiatic Russia
 RX9 	Asiatic Russia
 RY0 	Asiatic Russia
 RY1 	European Russia
-RY2 	Kaliningrad
+RY2F	Kaliningrad
+RY2K	Kaliningrad
 RY3 	European Russia
 RY4 	European Russia
 RY5 	European Russia
@@ -1093,7 +1120,8 @@ RY8 	Asiatic Russia
 RY9 	Asiatic Russia
 RZ0 	Asiatic Russia
 RZ1 	European Russia
-RZ2 	Kaliningrad
+RZ2F	Kaliningrad
+RZ2K	Kaliningrad
 RZ3 	European Russia
 RZ4 	European Russia
 RZ5 	European Russia
@@ -1162,11 +1190,11 @@ TI9 	Cocos Is
 TJ 	Cameroon
 TK 	Corsica
 TL 	Central Africa Rep
-TM 	France/Europe (Outside France) mostly used during contests.
+TM 	France Special
 This is a generic special call French prefix. Issued for 2 weeks
 maximum. Check QSL Routes at URL: Page2.html
 TN 	Congo
-TO 	France (Outside France) -- TO is for DOM (Departements d'outre-mer)
+TO 	France (Outside France)
 TO2000 (FG - NA102)station will be on the air from december 18th to
 january 4th. QSL routes is TO2000 via ON4LCE for this one.
 TO5M 	St. Pierre Miquelon (Typical Assignment)
@@ -1183,7 +1211,8 @@ TZ 	Mali
  Russia Prefixes, Suffixes and Zones -- A Must See
 U0 	Asiatic Russia
 U1 	European Russia
-U2 	Kaliningrad
+U2F	Kaliningrad
+U2K	Kaliningrad
 U3 	European Russia
 U4 	European Russia
 U5 	Ukraine
@@ -1193,11 +1222,13 @@ U8 	Asiatic Russia
 U9 	Asiatic Russia
 UA      Russia
 UA0 	Asiatic Russia
-UA2 	Kaliningrad
+UA2F	Kaliningrad
+UA2K	Kaliningrad
 UA9 	Asiatic Russia
 UB0 	Asiatic Russia
 UB1 	European Russia
-UB2 	Kaliningrad
+UB2F	Kaliningrad
+UB2K	Kaliningrad
 UB3 	European Russia
 UB4 	European Russia
 UB5 	European Russia
@@ -1207,7 +1238,8 @@ UB8 	Asiatic Russia
 UB9 	Asiatic Russia
 UC0 	Asiatic Russia
 UC1 	European Russia
-UC2 	Kaliningrad
+UC2F	Kaliningrad
+UC2K	Kaliningrad
 UC3 	European Russia
 UC4 	European Russia
 UC5 	European Russia
@@ -1217,7 +1249,8 @@ UC8 	Asiatic Russia
 UC9 	Asiatic Russia
 UD0 	Asiatic Russia
 UD1 	European Russia
-UD2 	Kaliningrad
+UD2F	Kaliningrad
+UD2K	Kaliningrad
 UD3 	European Russia
 UD4 	European Russia
 UD5 	European Russia
@@ -1227,7 +1260,8 @@ UD8 	Asiatic Russia
 UD9 	Asiatic Russia
 UE0 	Asiatic Russia
 UE1 	European Russia
-UE2 	Kaliningrad
+UE2F	Kaliningrad
+UE2K	Kaliningrad
 UE3 	European Russia
 UE4 	European Russia
 UE5 	European Russia
@@ -1237,7 +1271,8 @@ UE8 	Asiatic Russia
 UE9 	Asiatic Russia
 UF0 	Asiatic Russia
 UF1 	European Russia
-UF2 	Kaliningrad
+UF2F	Kaliningrad
+UF2K	Kaliningrad
 UF3 	European Russia
 UF4 	European Russia
 UF5 	European Russia
@@ -1252,7 +1287,8 @@ UG5 	European Russia
 UG6 	European Russia
 UH0 	Asiatic Russia
 UH1 	European Russia
-UH2 	Kaliningrad
+UH2F	Kaliningrad
+UH2K	Kaliningrad
 UH3 	European Russia
 UH4 	European Russia
 UH5 	European Russia
@@ -1262,7 +1298,8 @@ UH8 	Asiatic Russia
 UH9 	Asiatic Russia
 UI0 	Asiatic Russia
 UI1 	European Russia
-UI2 	Kaliningrad
+UI2F	Kaliningrad
+UI2K	Kaliningrad
 UI3 	European Russia
 UI4 	European Russia
 UI5 	European Russia
