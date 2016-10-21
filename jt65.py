@@ -37,10 +37,10 @@ from ctypes import c_int, byref, cdll
 # performance tuning parameters.
 #
 budget = 9     # CPU seconds (6 for benchmarks, 9 for real).
-noffs = 4      # look for sync every jblock/noffs (4)
-off_scores = 4 # consider off_scores*noffs starts per freq bin (3, 4)
-pass1_frac = 0.9 # fraction budget to spend before subtracting (0.5, 0.9)
-hetero_thresh = 7 # zero out bin that wins too many times (9, 5, 7)
+noffs = 2      # look for sync every jblock/noffs (4)
+off_scores = 2 # consider off_scores*noffs starts per freq bin (3, 4)
+pass1_frac = 0.3 # fraction budget to spend before subtracting (0.5, 0.9, 0.5)
+hetero_thresh = 6 # zero out bin that wins too many times (9, 5, 7)
 soft_iters = 75 # try r-s soft decode this many times (35, 125, 75)
 
 # Phil Karn's Reed-Solomon decoder.
@@ -288,7 +288,7 @@ class JT65:
           noises = numpy.add(noises, a)
           nnoises += 1
           si += self.jblock
-    
+
     noises /= nnoises
 
     # calculate noise for snr, mimicing wsjtx wsprd.c.
@@ -562,6 +562,8 @@ class JT65:
 
   def process1a(self, samples_minute, samples, xhz, start, noise, already):
     global hetero_thresh
+
+    # print "%d %.1f %d" % (len(samples), xhz, start)
 
     bin_hz = self.jrate / float(self.jblock) # FFT bin size, in Hz
 
@@ -2202,35 +2204,35 @@ def smallmark():
     o_hetero_thresh = hetero_thresh
     o_soft_iters = soft_iters
 
-    for pass1_frac in [ .7, .8, 0.9, 1.0 ]:
-        sc = benchmark(False)
-        print "%d : pass1_frac=%.2f" % (sc[0], pass1_frac)
-    pass1_frac = o_pass1_frac
-
-    for soft_iters in [ 35, 50, 75, 100, 125, 150, 200, 250 ]:
-        sc = benchmark(False)
-        print "%d : soft_iters=%d" % (sc[0], soft_iters)
-    soft_iters = o_soft_iters
-
-    for off_scores in [ 3, 4, 5, 6, 7 ]:
+    for off_scores in [ 2, 3, 4, 5, 6, 7 ]:
         sc = benchmark(False)
         print "%d : off_scores=%d" % (sc[0], off_scores)
     off_scores = o_off_scores
 
-    for hetero_thresh in [ 3, 5, 7, 9, 11 ]:
+    for hetero_thresh in [ 3, 5, 6, 7, 8, 9, 11 ]:
         sc = benchmark(False)
         print "%d : hetero_thresh=%d" % (sc[0], hetero_thresh)
     hetero_thresh = o_hetero_thresh
 
-    for budget in [ 4, 5, 6, 7, 8]:
+    for budget in [ 5, 6, 7, 8, 9, 10]:
         sc = benchmark(False)
         print "%d : budget=%d" % (sc[0], budget)
     budget = o_budget
 
-    for noffs in [ 3, 4, 5, 6 ]:
+    for noffs in [ 2, 3, 4, 5, 6 ]:
         sc = benchmark(False)
         print "%d : noffs=%d" % (sc[0], noffs)
     noffs = o_noffs
+
+    for pass1_frac in [ 0.2, 0.3, 0.4, 0.45, 0.5, 0.55, 0.6, .7 ]:
+        sc = benchmark(False)
+        print "%d : pass1_frac=%.2f" % (sc[0], pass1_frac)
+    pass1_frac = o_pass1_frac
+
+    for soft_iters in [ 50, 75, 90, 100, 110, 125, 130, 160 ]:
+        sc = benchmark(False)
+        print "%d : soft_iters=%d" % (sc[0], soft_iters)
+    soft_iters = o_soft_iters
 
 filename = None
 desc = None
@@ -2240,6 +2242,7 @@ send_msg = None
 
 def main():
   global filename, desc, bench, send_msg, small
+
   i = 1
   while i < len(sys.argv):
     if sys.argv[i] == "-in":
