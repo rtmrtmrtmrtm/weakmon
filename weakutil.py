@@ -13,6 +13,7 @@ import scipy
 import scipy.signal
 import wave
 import time
+import sys
 
 def cfg(program, key):
     cfg = ConfigParser.SafeConfigParser()
@@ -156,7 +157,7 @@ def resample(buf, from_rate, to_rate):
         want = int(want)
         buf = scipy.signal.resample(buf, want)
     else:
-        sys.stderr.warn("resample using interp for %d -> %d\n" % (from_rate, to_rate))
+        sys.stderr.write("resample using interp() for %d -> %d\n" % (from_rate, to_rate))
         secs =  len(buf)*(1.0/from_rate)
         ox = numpy.arange(0, secs, 1.0 / from_rate)
         ox = ox[0:len(buf)]
