@@ -148,12 +148,15 @@ def iq2usb(iq):
 def resample(buf, from_rate, to_rate):
     if to_rate == from_rate/2:
         buf = buf[0::2]
-    elif False:
-        # can be extremely slow.
+    # elif False:
+    elif from_rate == 12000 and to_rate == 5512:
+        # seems to produce better results than numpy.interp() but
+        # is slower, sometimes much slower.
         want = (len(buf) / float(from_rate)) * to_rate
         want = int(want)
         buf = scipy.signal.resample(buf, want)
     else:
+        sys.stderr.warn("resample using interp for %d -> %d\n" % (from_rate, to_rate))
         secs =  len(buf)*(1.0/from_rate)
         ox = numpy.arange(0, secs, 1.0 / from_rate)
         ox = ox[0:len(buf)]
