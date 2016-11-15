@@ -14,6 +14,7 @@ import scipy.signal
 import wave
 import time
 import sys
+import thread
 
 def cfg(program, key):
     cfg = ConfigParser.SafeConfigParser()
@@ -73,6 +74,107 @@ def freq_shift(x, f_shift, dt):
     ret = h[:N_orig].real
     return ret
 
+# caller supplies two shifts, in hza[0] and hza[1].
+# shift x[0] by hza[0], ..., x[-1] by hza[1]
+# corrects for phase change:
+# http://stackoverflow.com/questions/3089832/sine-wave-glissando-from-one-pitch-to-another-in-numpy
+# sadly, more expensive than piece-wise freq_shift() because
+# the ramp part does noticeable work.
+def freq_shift_ramp(x, hza, dt):
+    N_orig = len(x)
+    N_padded = 2**nextpow2(N_orig)
+    t = numpy.arange(0, N_padded)
+    f_shift = numpy.linspace(hza[0], hza[1], len(x))
+    f_shift = numpy.append(f_shift, hza[1]*numpy.ones(N_padded-len(x)))
+
+    pc1 = f_shift[:-1] - f_shift[1:]
+    phase_correction = numpy.add.accumulate(
+      t * dt * numpy.append(numpy.zeros(1), 2*numpy.pi*pc1))
+
+    lo = numpy.exp(1j*(2*numpy.pi*dt*f_shift*t + phase_correction))
+    x0 = numpy.append(x, numpy.zeros(N_padded-N_orig, x.dtype))
+    h = scipy.signal.hilbert(x0)*lo
+    ret = h[:N_orig].real
+    return ret
+
+# avoid most of the round-up-to-power-of-two penalty by
+# doing log-n shifts. discontinuity at boundaries,
+# but that's OK for JT65 2048-sample symbols.
+def freq_shift_hack(x, hza, dt):
+    a = freq_shift_hack_iter(x, hza, dt)
+    return numpy.concatenate(a)
+
+def freq_shift_hack_iter(x, hza, dt):
+    if len(x) <= 4096:
+        return [ freq_shift(x, (hza[0] + hza[1]) / 2.0, dt) ]
+    lg = nextpow2(len(x))
+    if len(x) == 2**lg:
+        return [ freq_shift_ramp(x, hza, dt) ]
+    
+    i1 = 2**(lg-1)
+    hz_i1 = hza[0] + (i1 / float(len(x)))*(hza[1] - hza[0])
+    ret = [ freq_shift_ramp(x[0:i1], [ hza[0], hz_i1 ], dt) ]
+    ret +=  freq_shift_hack_iter(x[i1:], [ hz_i1, hza[1] ], dt) 
+    return ret
+
+# pure sin tone, n samples lone.
+def tone(rate, hz, n):
+    x = numpy.linspace(0, 2 * hz * (n / float(rate)) * numpy.pi, n)
+    y = numpy.sin(x)
+    return y
+
+# cache
+fos_mu = thread.allocate_lock()
+fos_hz = None
+fos_fft = None
+fos_n = None
+
+# shift signal a up by hz, returning
+# the rfft of the resulting signal.
+# do it by convolving ffts.
+# use numpy.fft.irfft(ret, len(a)) to get the signal.
+# intended for single power-of-two-length JT65 symbols.
+# faster than freq_shift() if you need the fft (not the
+# actual resulting signal).
+def fft_of_shift(a, hz, rate):
+    global fos_hz, fos_n, fos_fft
+
+    afft = numpy.fft.rfft(a)
+
+    bin_hz = rate / float(len(a))
+
+    # we want this many fft bins on either side of the tone.
+    pad_bins = 10
+
+    # shift the tone up by integral bins until it is
+    # enough above zero that we get fft bins on either side.
+    # XXX if hz is more than 10 bins above zero, negative shift.
+    if hz >= 0:
+        shift_bins = max(0, pad_bins - int(hz / bin_hz))
+    else:
+        shift_bins = int((-hz) / bin_hz) + pad_bins
+    hz += shift_bins * bin_hz
+
+    # fos_mu.acquire()
+    if fos_n == len(a) and abs(fos_hz - hz) < 0.5:
+        lofft = fos_fft
+    else:
+        lo = tone(rate, hz, len(a))
+        lofft = numpy.fft.rfft(lo)
+        fos_hz = hz
+        fos_fft = lofft
+        fos_n = len(a)
+    # fos_mu.release()
+
+    lo_bin = int(hz / bin_hz)
+    lofft = lofft[0:lo_bin+pad_bins]
+
+    outfft = numpy.convolve(lofft, afft, 'full')
+    outfft = outfft[shift_bins:]
+
+    outfft = outfft[0:len(afft)]
+    return outfft
+
 # https://gist.github.com/endolith/255291
 # thank you, endolith.
 def parabolic(f, x):
@@ -104,11 +206,10 @@ fff_cached_window = None
 # https://gist.github.com/endolith/255291
 def freq_from_fft(sig, rate, minf, maxf):
     global fff_cached_window, fff_cached_window_set
-    if fff_cached_window_set == False:
+    if fff_cached_window_set == False or len(sig) != len(fff_cached_window):
       # this uses a bunch of CPU time.
       fff_cached_window = scipy.signal.blackmanharris(len(sig))
       fff_cached_window_set = True
-    assert len(sig) == len(fff_cached_window)
 
     windowed = sig * fff_cached_window
     f = numpy.fft.rfft(windowed)
@@ -165,7 +266,7 @@ def resample(buf, from_rate, to_rate):
     return buf
 
 # gadget to low-pass-filter and re-sample a multi-block
-# stream without losing fraction samples at block
+# stream without losing fractional samples at block
 # boundaries, which would hurt phase-shift demodulators
 # like WWVB.
 class Resampler:
@@ -187,6 +288,18 @@ class Resampler:
         self.lost_sum = 0
 
     def resample(self, buf):
+        # correct for samples gained/lost so far.
+        sample_time = 1.0 / self.from_rate
+        ns = int(self.lost_sum / sample_time)
+        if ns > 0:
+            buf = numpy.append(numpy.repeat((self.last+buf[0])/2.0, ns), buf)
+            self.lost_sum -= ns * sample_time
+        elif ns < 0:
+            buf = buf[-ns:]
+            self.lost_sum -= ns * sample_time
+
+        self.last = buf[-1]
+
         if self.from_rate > self.to_rate:
             # low-pass filter.
             zi = scipy.signal.lfilter(self.filter[0],
@@ -203,17 +316,11 @@ class Resampler:
             buf = resample(buf, self.from_rate, self.to_rate)
 
             # buf is probably too short by a fraction of a sample;
-            # keep track of how many samples we've lost so we don't
+            # keep track of how many seconds of samples we've lost so we don't
             # screw up the phase.
             newsec = len(buf) / float(self.to_rate)
-            lost = (oldsec - newsec) * self.to_rate
+            lost = oldsec - newsec
             self.lost_sum += lost
-            while self.lost_sum > 1.0:
-                buf = numpy.append(buf, buf[-1:])
-                self.lost_sum -= 1.0
-            while self.lost_sum < -1.0:
-                buf = buf[0:-1]
-                self.lost_sum += 1.0
 
         return buf
 
