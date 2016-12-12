@@ -80,7 +80,8 @@ class EB200:
 
         if self.seq != None:
             if seq != self.seq + 1 and seq > self.seq:
-                sys.stderr.write("eb200: missed %d packets\n" % (seq - self.seq))
+                sys.stderr.write("eb200: missed %d packets (%d %d)\n" % (seq - self.seq,
+                     self.seq, seq))
                 # XXX should fake the right number of samples.
         self.seq = seq
 
