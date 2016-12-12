@@ -138,19 +138,19 @@ class JT65Mon:
             bandcount = 0  # all msgs
             bandcount1 = 0 # msgs with lowist reed-solomon error counts
             msgs = self.r[ci].get_msgs()
-            # each msg is [ minute, hz, msg, decode_time, nerrs, snr ]
+            # each msg is a jt65.Decode
             for m in msgs[self.msgs_index[ci]:]:
-                m = m + [ ci ]
-                if m[0] == minute:
+                m.card = ci
+                if m.minute == minute:
                     bandcount += 1
-                    if m[4] < 25:
+                    if m.nerrs < 25:
                         bandcount1 += 1
                     all.append(m)
-                    z = d.get(m[2], [])
+                    z = d.get(m.msg, [])
                     z.append([ ci, m ])
-                    d[m[2]] = z
+                    d[m.msg] = z
                 else:
-                    print "LATE: %s %.1f %s" % (self.r[ci].ts(m[3]), m[1], m[2])
+                    print "LATE: %s %.1f %s" % (self.r[ci].ts(m.decode_time), m.hz(), m.msg)
             x = self.bandinfo.get(bands[ci], 0)
             self.bandinfo[bands[ci]] = 0.5 * x + 0.5 * bandcount1
 
@@ -175,19 +175,19 @@ class JT65Mon:
                 band = bands[ci]
                 if not (str(ci) in got):
                     got += str(ci)
-                hz = m[1]
-                nerrs[ci] = m[4]
-                if snr == None or m[5] > snr:
-                    snr = m[5]
+                hz = m.hz()
+                nerrs[ci] = m.nerrs
+                if snr == None or m.snr > snr:
+                    snr = m.snr
 
-            info = "%s %s rcv %2s %2d %2d %3.0f %6.1f %s" % (self.r[ci].ts(m[3]),
+            info = "%s %s rcv %2s %2d %2d %3.0f %6.1f %s" % (self.r[ci].ts(m.decode_time),
                                                                band,
                                                                got,
                                                                nerrs[0],
                                                                nerrs[1],
                                                                snr,
-                                                               m[1],
-                                                               m[2])
+                                                               m.hz(),
+                                                               m.msg)
 
             print info
 
@@ -199,9 +199,9 @@ class JT65Mon:
             # the 30 here suppresses some good CQ receptions, but
             # perhaps better that than reporting erroneous decodes.
             if (nerrs[0] >= 0 and nerrs[0] < 30) or (nerrs[1] >= 0 and nerrs[1] < 30):
-                txt = m[2]
-                hz = m[1] + int(b2f[band] * 1000000.0)
-                tm = m[3]
+                txt = m.msg
+                hz = m.hz() + int(b2f[band] * 1000000.0)
+                tm = m.decode_time
                 self.maybe_pskr(txt, hz, tm)
 
         return all
