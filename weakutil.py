@@ -1,5 +1,5 @@
 #
-# random shared support routines for weak*.py
+# shared support routines for weak*.py
 #
 
 #
@@ -11,6 +11,7 @@ import ConfigParser
 import numpy
 import scipy
 import scipy.signal
+import scipy.fftpack
 import wave
 import time
 import sys
@@ -119,9 +120,13 @@ def freq_shift_hack_iter(x, hza, dt):
 
 # pure sin tone, n samples lone.
 def tone(rate, hz, n):
-    x = numpy.linspace(0, 2 * hz * (n / float(rate)) * numpy.pi, n)
+    x = numpy.linspace(0, 2 * hz * (n / float(rate)) * numpy.pi, n,
+                       dtype=numpy.float32)
     y = numpy.sin(x)
     return y
+
+# parameter
+fos_threshold = 0.5
 
 # cache
 fos_mu = thread.allocate_lock()
@@ -139,7 +144,7 @@ fos_n = None
 def fft_of_shift(a, hz, rate):
     global fos_hz, fos_n, fos_fft
 
-    afft = numpy.fft.rfft(a)
+    afft = rfft(a)
 
     bin_hz = rate / float(len(a))
 
@@ -156,11 +161,11 @@ def fft_of_shift(a, hz, rate):
     hz += shift_bins * bin_hz
 
     # fos_mu.acquire()
-    if fos_n == len(a) and abs(fos_hz - hz) < 0.5:
+    if fos_n == len(a) and abs(fos_hz - hz) < fos_threshold:
         lofft = fos_fft
     else:
         lo = tone(rate, hz, len(a))
-        lofft = numpy.fft.rfft(lo)
+        lofft = rfft(lo)
         fos_hz = hz
         fos_fft = lofft
         fos_n = len(a)
@@ -196,7 +201,10 @@ def parabolic(f, x):
     Out[4]: (3.2142857142857144, 6.1607142857142856)
    
     """
-    xv = 1/2. * (f[x-1] - f[x+1]) / (f[x-1] - 2 * f[x] + f[x+1]) + x
+    denom = (f[x-1] - 2 * f[x] + f[x+1])
+    if denom == 0.0:
+        return None
+    xv = 1/2. * (f[x-1] - f[x+1]) / denom + x
     yv = f[x] - 1/4. * (f[x-1] - f[x+1]) * (xv - x)
     return (xv, yv)
 
@@ -209,23 +217,30 @@ def freq_from_fft(sig, rate, minf, maxf):
     if fff_cached_window_set == False or len(sig) != len(fff_cached_window):
       # this uses a bunch of CPU time.
       fff_cached_window = scipy.signal.blackmanharris(len(sig))
+      fff_cached_window = fff_cached_window.astype(numpy.float32)
       fff_cached_window_set = True
 
-    windowed = sig * fff_cached_window
-    f = numpy.fft.rfft(windowed)
-    fa = abs(f)
+    n = len(sig)
+
+    fa = sig * fff_cached_window
+    #fa = abs(numpy.fft.rfft(fa))
+    fa = arfft(fa)
 
     # find max between minf and maxf
-    mini = int(minf * len(windowed) / rate)
-    maxi = int(maxf * len(windowed) / rate)
+    mini = int(minf * n / rate)
+    maxi = int(maxf * n / rate)
+
     i = numpy.argmax(fa[mini:maxi]) + mini # peak bin
 
-    if fa[i] <= 0.0:
+    if i < 1 or i+1 >= len(fa) or fa[i] <= 0.0:
         return None
 
-    true_i = parabolic(numpy.log(fa), i)[0] # interpolate
+    xp = parabolic(numpy.log(fa[i-1:i+2]), 1) # interpolate
+    if xp == None:
+        return None
+    true_i = xp[0] + i - 1
 
-    return rate * true_i / float(len(windowed)) # convert to frequency
+    return rate * true_i / float(n) # convert to frequency
 
 def moving_average(a, n):
     ret = numpy.cumsum(a, dtype=float)
@@ -269,6 +284,9 @@ def resample(buf, from_rate, to_rate):
 # stream without losing fractional samples at block
 # boundaries, which would hurt phase-shift demodulators
 # like WWVB.
+# it only works correctly if each buffer is an integer
+# number of samples for both rates, e.g. for exactly
+# second of samples.
 class Resampler:
     def __init__(self, from_rate, to_rate):
         self.from_rate = from_rate
@@ -288,16 +306,20 @@ class Resampler:
         self.lost_sum = 0
 
     def resample(self, buf):
-        # correct for samples gained/lost so far.
+        oldlen = len(buf)
+
+        # attempt to correct for samples gained/lost so far.
         sample_time = 1.0 / self.from_rate
         ns = int(self.lost_sum / sample_time)
         if ns > 0:
+            #print "add %d" % (ns)
             buf = numpy.append(numpy.repeat((self.last+buf[0])/2.0, ns), buf)
             self.lost_sum -= ns * sample_time
         elif ns < 0:
+            #print "del %d " % (-ns)
             buf = buf[-ns:]
             self.lost_sum -= ns * sample_time
-
+        
         self.last = buf[-1]
 
         if self.from_rate > self.to_rate:
@@ -310,10 +332,13 @@ class Resampler:
             self.zi = zi[1]
 
         if self.from_rate != self.to_rate:
-            oldsec = len(buf) / float(self.from_rate)
+            oldsec = oldlen / float(self.from_rate)
 
             # change sample rate.
             buf = resample(buf, self.from_rate, self.to_rate)
+            
+            while len(buf) > oldsec*self.to_rate:
+                buf = buf[0:-1]
 
             # buf is probably too short by a fraction of a sample;
             # keep track of how many seconds of samples we've lost so we don't
@@ -323,6 +348,64 @@ class Resampler:
             self.lost_sum += lost
 
         return buf
+
+use_numpy_arfft = False
+
+# wrapper for either numpy or scipy rfft(),
+# followed by abs().
+# scipy rfft() is nice b/c it supports float32.
+# but not faster for 2048-point FFTs.
+def arfft(x):
+    if use_numpy_arfft:
+        y = numpy.fft.rfft(x)
+        y = abs(y)
+        return y
+    else:
+        assert (len(x) % 2) == 0
+
+        y = scipy.fftpack.rfft(x)
+
+        if type(y[0]) == numpy.float32:
+            cty = numpy.complex64
+        elif type(y[0]) == numpy.float64:
+            cty = numpy.complex128
+        else:
+            assert False
+
+        # y = [ Re0, Re1, Im1, Re2, Im2, ..., ReN ]
+        #y1 = numpy.sqrt(numpy.add(numpy.square(y[1:-1:2]),
+        #                          numpy.square(y[2:-1:2])))
+        y0 = abs(y[0])
+        yn = abs(y[-1])
+        y = abs(y[1:-1].view(cty))
+        y = numpy.concatenate(([y0], y, [yn]))
+        return y
+
+use_numpy_rfft = False
+
+# wrapper for either numpy or scipy rfft().
+# scipy rfft() is nice b/c it supports float32.
+# but not faster for 2048-point FFTs.
+def rfft(x):
+    if use_numpy_rfft:
+        y = numpy.fft.rfft(x)
+        return y
+    else:
+        assert (len(x) % 2) == 0
+
+        y = scipy.fftpack.rfft(x)
+
+        if type(y[0]) == numpy.float32:
+            cty = numpy.complex64
+        elif type(y[0]) == numpy.float64:
+            cty = numpy.complex128
+        else:
+            assert False
+
+        # y = [ Re0, Re1, Im1, Re2, Im2, ..., ReN ]
+        y1 = y[1:-1].view(cty)
+        y = numpy.concatenate((y[0:1], y1, y[-1:]))
+        return y
 
 # apply automatic gain control.
 # causes each winlen window of samples
