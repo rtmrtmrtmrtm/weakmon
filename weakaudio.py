@@ -126,7 +126,7 @@ class Stream:
         self.cardlock.acquire()
         buf = self.cardbuf
         buf_time = self.cardtime
-        self.cardbuf = numpy.array([])
+        self.cardbuf = numpy.array([], dtype=numpy.int16)
         self.cardlock.release()
 
         if len(buf) > 0:
@@ -267,8 +267,8 @@ class SDRIP:
         buf = numpy.concatenate(bufbuf)
 
         buf = weakutil.iq2usb(buf) # I/Q -> USB
-
         buf = self.resampler.resample(buf)
+        buf = buf.astype(numpy.float32) # save some space.
 
         return [ buf, buf_time ]
 
@@ -343,7 +343,7 @@ class SDRIQ:
         self.cardtime = time.time()
 
         while True:
-            # read i/q blocks, to reduce CPU time in
+            # read i/q blocks, float64, to reduce CPU time in
             # this thread, which drains the UDP socket.
             got = self.sdr.readiq()
 
