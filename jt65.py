@@ -27,21 +27,51 @@ import copy
 import calendar
 import subprocess
 import thread
+import threading
 import re
 import random
+import multiprocessing
 from scipy.signal import lfilter
 import ctypes
 from ctypes import c_int, byref, cdll
+import resource
+import collections
+import gc
 
 #
 # performance tuning parameters.
 #
-budget = 9     # CPU seconds (6 for benchmarks, 9 for real).
-noffs = 2      # look for sync every jblock/noffs (4)
-off_scores = 2 # consider off_scores*noffs starts per freq bin (3, 4)
-pass1_frac = 0.3 # fraction budget to spend before subtracting (0.5, 0.9, 0.5)
+budget = 9     # CPU seconds (9)
+noffs = 3      # look for sync every jblock/noffs (2)
+off_scores = 1 # consider off_scores*noffs starts per freq bin (3, 4)
+pass1_frac = 0.1 # fraction budget to spend before subtracting (0.5, 0.9, 0.5)
 hetero_thresh = 6 # zero out bin that wins too many times (9, 5, 7)
 soft_iters = 75 # try r-s soft decode this many times (35, 125, 75)
+min_soft = 10  # always designate at least this many errors for soft decode
+max_soft = 40  # never more than this many soft error symbols
+
+# information about one decoded signal.
+class Decode:
+    def __init__(self,
+                 hza,
+                 nerrs,
+                 msg,
+                 snr,
+                 minute,
+                 start,
+                 twelve,
+                 decode_time):
+        self.hza = hza
+        self.nerrs = nerrs
+        self.msg = msg
+        self.snr = snr
+        self.minute = minute
+        self.start = start
+        self.twelve = twelve
+        self.decode_time = decode_time
+
+    def hz(self):
+        return numpy.mean(self.hza)
 
 # Phil Karn's Reed-Solomon decoder.
 # copied from wsjt-x, along with wrapkarn.c.
@@ -69,11 +99,13 @@ def broken_msg(msg):
              "TG7HQQ", "475IVR", "L16RAH", "XO2QLH", "5E8HML", "HF7VBA",
              "F11XTN", "7T4EUZ", "EF5KYD", "A80CCM", "HF7VBA",
              "VV3EZD", "DT8ZBT", "8Z9RTD", "7U0NNP", "6P8CGY", "WH9ASY",
-             "V96TCU", "BF3AUF", "7B5JDP" ]
+             "V96TCU", "BF3AUF", "7B5JDP", "1HFXR1", "28NTV" ]
     for bad in bads:
         if bad in msg:
             return True
     return False
+
+very_first_time = True
 
 class JT65:
   debug = False
@@ -85,6 +117,7 @@ class JT65:
       self.msgs_lock = thread.allocate_lock()
       self.msgs = [ ]
       self.verbose = False
+      self.enabled = True # True -> run process(); False -> don't
 
       self.jrate = 11025/2 # sample rate for processing (FFT &c)
       self.jblock = 4096/2 # samples per symbol
@@ -154,10 +187,12 @@ class JT65:
         break
       bufbuf.append(buf)
     samples = numpy.concatenate(bufbuf)
+    bufbuf = None
     self.process(samples, 0)
 
   def opencard(self, desc):
-      self.cardrate = 11025 # XXX
+      # self.cardrate = 11025 # XXX
+      self.cardrate = 11025 / 2 # XXX jrate
       self.audio = weakaudio.new(desc, self.cardrate)
 
   def gocard(self):
@@ -165,19 +200,22 @@ class JT65:
       bufbuf = [ ]
       nsamples = 0
       while self.done == False:
+          sec = self.second(samples_time)
+          if sec < 48 or nsamples < 48*self.cardrate:
+              # give lower-level audio a chance to use
+              # bigger batches, may help resampler() quality.
+              time.sleep(1.0)
+          else:
+              time.sleep(0.2)
+
           [ buf, buf_time ] = self.audio.read()
 
-          bufbuf.append(buf)
-          nsamples += len(buf)
-          samples_time = buf_time
-
           if len(buf) > 0:
-              mx = numpy.max(numpy.abs(buf))
-              if mx > 30000:
+              bufbuf.append(buf)
+              nsamples += len(buf)
+              samples_time = buf_time
+              if numpy.max(buf) > 30000 or numpy.min(buf) < -30000:
                   sys.stderr.write("!")
-
-          if len(buf) == 0:
-              time.sleep(0.2)
 
           # wait until we have enough samples through 49th second of minute.
           # we want to start on the minute (i.e. a second before nominal
@@ -189,6 +227,7 @@ class JT65:
               # we have >= 49 seconds of samples, and second of minute is >= 49.
 
               samples = numpy.concatenate(bufbuf)
+              bufbuf = [ ]
 
               # sample # of start of minute.
               i0 = len(samples) - self.cardrate * self.second(samples_time)
@@ -196,7 +235,7 @@ class JT65:
               t = samples_time - (len(samples)-i0) * (1.0/self.cardrate)
               self.process(samples[i0:], t)
 
-              bufbuf = [ ]
+              samples = None
               nsamples = 0
 
   def close(self):
@@ -204,36 +243,132 @@ class JT65:
       self.done = True 
 
   # received a message, add it to the list.
-  def got_msg(self, minute, hz, msg, nerrs, snr):
-      mm = [ minute, hz, msg, time.time(), nerrs, snr ]
-
+  # dec is a Decode.
+  def got_msg(self, dec):
       self.msgs_lock.acquire()
 
       # already in msgs with worse nerrs?
       found = False
-      for i in range(max(0, len(self.msgs)-20), len(self.msgs)):
+      for i in range(max(0, len(self.msgs)-40), len(self.msgs)):
           xm = self.msgs[i]
-          if xm[0] == minute and abs(xm[1] - hz) < 10 and xm[2] == msg:
+          if xm.minute == dec.minute and abs(xm.hz() - dec.hz()) < 10 and xm.msg == dec.msg:
               # we already have this msg
               found = True
-              if nerrs < xm[4]:
-                  self.msgs[i] = mm
+              if dec.nerrs < xm.nerrs:
+                  self.msgs[i] = dec
                   
       if found == False:
-          self.msgs.append(mm)
+          self.msgs.append(dec)
 
       self.msgs_lock.release()
 
   # someone wants a list of all messages received.
-  # each msg is [ minute, hz, msg, decode_time, nerrs, snr ]
+  # each msg is a Decode.
+  # # each msg is [ minute, hz, msg, decode_time, nerrs, snr ]
   def get_msgs(self):
       self.msgs_lock.acquire()
       a = copy.copy(self.msgs)
       self.msgs_lock.release()
       return a
 
+  # fork the real work, to try to get more multi-core parallelism.
   def process(self, samples, samples_time):
+      global budget
+      global very_first_time
+      if very_first_time:
+          # warm things up.
+          very_first_time = False
+          thunk = (lambda dec : self.got_msg(dec))
+          self.process0(samples, samples_time, thunk, 0, 2580)
+          return
+
+      sys.stdout.flush()
+
+      # parallelize the work by audio frequency: one thread
+      # gets the low half, the other thread gets the high half.
+      # the ranges have to overlap so each can decode
+      # overlapping (interfering) transmissions.
+
+      rca = [ ] # connections on which we'll receive
+      pra = [ ] # child processes
+      tha = [ ] # a thread to read from each child
+      txa = [ ]
+      npr = 2
+      for pi in range(0, npr):
+          min_hz = pi * (2580 / npr)
+          min_hz = max(min_hz - 50, 0)
+
+          max_hz = (pi + 1) * (2580 / npr)
+          max_hz = min(max_hz + 175, 2580)
+
+          txa.append(time.time())
+
+          recv_conn, send_conn = multiprocessing.Pipe(False)
+          p = multiprocessing.Process(target=self.process00,
+                                      args=[samples, samples_time, send_conn,
+                                            min_hz, max_hz])
+          p.start()
+          send_conn.close()
+          pra.append(p)
+          rca.append(recv_conn)
+
+          th = threading.Thread(target=lambda c=recv_conn: self.readchild(c))
+          th.start()
+          tha.append(th)
+
+      for pi in range(0, len(rca)):
+          t0 = time.time()
+          pra[pi].join(budget+2.0)
+          if pra[pi].is_alive():
+              print "\n%s child process still alive, enabled=%s\n" % (self.ts(time.time()),
+                                                                      self.enabled)
+              pra[pi].terminate()
+              pra[pi].join(2.0)
+          t1 = time.time()
+          tha[pi].join(2.0)
+          if tha[pi].isAlive():
+              t2 = time.time()
+              print "\n%s reader thread still alive, enabled=%s, %.1f %.1f %.1f\n" % (self.ts(t2),
+                                                                                      self.enabled,
+                                                                                      t0-txa[pi],
+                                                                                      t1-t0,
+                                                                                      t2-t1)
+          rca[pi].close()
+
+  def readchild(self, recv_conn):
+      while True:
+          try:
+              dec = recv_conn.recv()
+              # x is a Decode
+              self.got_msg(dec)
+          except:
+              break
+
+  # in child process.
+  def process00(self, samples, samples_time, send_conn, min_hz, max_hz):
+      gc.disable() # no point since will exit soon
+      thunk = (lambda dec : send_conn.send(dec))
+      self.process0(samples, samples_time, thunk, min_hz, max_hz)
+      send_conn.close()
+
+  # for each decode, call thunk(Decode).
+  # only look at sync tones from min_hz .. max_hz.
+  def process0(self, samples, samples_time, thunk, min_hz, max_hz):
     global budget, noffs, off_scores, pass1_frac
+
+    if self.enabled == False:
+        return
+
+    if self.verbose:
+        print "len %d %.1f, type %s, rates %.1f %.1f" % (len(samples),
+                                                         len(samples) / float(self.cardrate),
+                                                         type(samples[0]),
+                                                         self.cardrate,
+                                                         self.jrate)
+        sys.stdout.flush()
+
+    if type(samples[0]) != numpy.int16 and type(samples[0]) != numpy.float32:
+        print "samples %s" % (type(samples[0]))
 
     if False:
         print "saving to aaa.wav, max %.0f" % (numpy.max(samples))
@@ -248,23 +383,41 @@ class JT65:
 
     if self.cardrate != self.jrate:
       # reduce rate from self.cardrate to self.jrate.
-      assert self.jrate >= 2 * 2300
-      filter = weakutil.butter_lowpass(2300.0, self.cardrate, order=10)
-      samples = scipy.signal.lfilter(filter[0],
-                                     filter[1],
-                                     samples)
-      samples = weakutil.resample(samples, self.cardrate, self.jrate)
+      assert self.jrate >= 2 * 2500
+      if False:
+          filter = weakutil.butter_lowpass(2500.0, self.cardrate, order=10)
+          samples = scipy.signal.lfilter(filter[0],
+                                         filter[1],
+                                         samples)
+          samples = weakutil.resample(samples, self.cardrate, self.jrate)
+      else:
+          # resample in pieces so that we can preserve float32,
+          # since lfilter insists on float64.
+          rs = weakutil.Resampler(self.cardrate, self.jrate)
+          resampleblock = self.cardrate # exactly one second works best
+          si = 0
+          ba = [ ]
+          while si < len(samples):
+              block = samples[si:si+resampleblock]
+              nblock = rs.resample(block)
+              nblock = nblock.astype(numpy.float32)
+              ba.append(nblock)
+              si += resampleblock
+          samples = numpy.concatenate(ba)
 
     # pad at start+end b/c transmission might have started early
     # or late.
-    sm = numpy.mean(abs(samples))
-    samples = numpy.concatenate(((numpy.random.random(self.jrate*3) - 0.5) * sm * 2,
-                                 samples,
-                                 (numpy.random.random(self.jrate*4) - 0.5) * sm * 2))
+    #sm = numpy.mean(abs(samples))
+    sm = numpy.mean(abs(samples[2000:5000]))
+    r0 = (numpy.random.random(self.jrate*3) - 0.5) * sm * 2
+    r0 = r0.astype(numpy.float32)
+    r1 = (numpy.random.random(self.jrate*4) - 0.5) * sm * 2
+    r1 = r1.astype(numpy.float32)
+    samples = numpy.concatenate([ r0, samples, r1 ])
 
     bin_hz = self.jrate / float(self.jblock)
-    minbin = 5
-    maxbin = int(2500 / bin_hz) # avoid JT9
+    minbin = max(5, int(min_hz  / bin_hz))
+    maxbin = int(max_hz / bin_hz)
 
     # assign a score to each frequency bin,
     # according to how similar it seems to a sync tone pattern.
@@ -282,8 +435,9 @@ class JT65:
       while si + self.jblock <= len(samples):
           block = samples[si:si+self.jblock]
           # block = block * scipy.signal.blackmanharris(len(block))
-          a = numpy.fft.rfft(block)
-          a = abs(a)
+          # a = numpy.fft.rfft(block)
+          # a = abs(a)
+          a = weakutil.arfft(block)
           m[oi].append(a)
           noises = numpy.add(noises, a)
           nnoises += 1
@@ -316,51 +470,46 @@ class JT65:
 
         indices = range(0, len(cc))
         indices = sorted(indices, key=lambda i : -cc[i])
-        indices = indices[0:off_scores] # XXX should be a parameter
+        indices = indices[0:off_scores]
         for ii in indices:
           scores.append([ j, cc[ii], True, offs[oi] + ii*self.jblock ])
 
+    # release m[]'s memory.
+    m = None
+
     # scores[i] = [ bin, correlation, valid, start ]
-              
+
     if False:
-        # don't do this any more b/c we want to explore the best
-        # few offsets per bin.
-
-        # sort by bin (frequency).
-        scores = sorted(scores, key=lambda sc : sc[0])
-
-        # suppress frequencies that aren't local peak scores,
-        # reflected in scores[i][2] (true for ok, false for ignore).
-        for i in range(0, len(scores)):
-          ok = True
-          sc = scores[i][1]
-          for j in range(i-1,i+2):
-              if i != j and j >= 0 and j < len(scores) and sc < scores[j][1]:
-                  ok = False
-          scores[i][2] = ok
-
-        # filter out valid=False entries.
-        scores = [ x for x in scores if x[2] ]
+        want_hz = 571
+        bin_hz = self.jrate / float(self.jblock)
+        for e in scores:
+            ehz = e[0] * bin_hz
+            if abs(ehz - want_hz) < 2.5:
+                print e
+                e[1] *= 100
 
     # highest scores first.
     scores = sorted(scores, key=lambda sc : -sc[1])
 
     ssamples = numpy.copy(samples) # subtracted
     already = { } # suppress duplicate msgs
+    decodes = 0
 
-    # first without subtraction
-    # we get decodes all the way down to e.g. i=49.
-    # but only try through 40 this time, in order to
-    # ensure there's time to start decoding on subtracted
-    # signals before our alloted 10 seconds expires.
+    # first without subtraction.
+    # don't blow the whole budget, to ensure there's time
+    # to start decoding on subtracted signals.
     i = 0
     while i < len(scores) and (time.time() - t0) < budget * pass1_frac:
         hz = scores[i][0] * (self.jrate / float(self.jblock))
-        x = self.process1(samples_minute, samples, hz, noise, scores[i][3], already)
-        if x != None:
+        dec = self.process1(samples, hz, noise, scores[i][3], already)
+        if dec != None:
+            decodes += 1
+            dec.minute = samples_minute
+            thunk(dec)
             scores[i][2] = False
-            ssamples = self.subtract_v3(ssamples, x[0], x[1], x[4])
+            ssamples = self.subtract_v3(ssamples, dec.hza, dec.start, dec.twelve)
         i += 1
+    nfirst = i
 
     # filter out entries that we just decoded.
     scores = [ x for x in scores if x[2] ]
@@ -372,10 +521,23 @@ class JT65:
     i = 0
     while i < len(scores) and (time.time() - t0) < budget:
         hz = scores[i][0] * (self.jrate / float(self.jblock))
-        x = self.process1(samples_minute, ssamples, hz, noise, scores[i][3], already)
-        if x != None:
-            ssamples = self.subtract_v3(ssamples, x[0], x[1], x[4])
+        dec = self.process1(ssamples, hz, noise, scores[i][3], already)
+        if dec != None:
+            decodes += 1
+            dec.minute = samples_minute
+            thunk(dec)
+            # this subtract() is important for performance.
+            ssamples = self.subtract_v3(ssamples, dec.hza, dec.start, dec.twelve)
         i += 1
+
+    if self.verbose:
+        print "%d..%d, did %d of %d, %d hits, maxrss %.1f MB" % (
+            min_hz,
+            max_hz,
+            nfirst+i,
+            len(scores),
+            decodes,                                              
+            resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0*1024.0))
 
   # subtract a decoded signal (hz/start/twelve) from the samples,
   # to that we can then decode weaker signals underneath it.
@@ -433,7 +595,7 @@ class JT65:
   #
   # guess the sample number at which the first sync symbol starts.
   #
-  # this is basically never used any more; it's a better use of CPU time
+  # this is not used any more; it's a better use of CPU time
   # to just look for sync correlation at a bunch of sub-symbol offsets.
   #
   def guess_offset(self, samples, hz):
@@ -548,22 +710,20 @@ class JT65:
       return hz
 
   # xhz is the sync tone frequency.
-  # returns None or [ hz, start, nerrs, msg, twelve ]
-  def process1(self, samples_minute, samples, xhz, noise, start, already):
+  # returns None or a Decode
+  def process1(self, samples, xhz, noise, start, already):
     if len(samples) < 126*self.jblock:
         return None
 
     bin_hz = self.jrate / float(self.jblock) # FFT bin size, in Hz
 
-    # used to call guess_offset() here.
+    dec = self.process1a(samples, xhz, start, noise, already)
 
-    ret = self.process1a(samples_minute, samples, xhz, start, noise, already)
-    return ret
+    return dec
 
-  def process1a(self, samples_minute, samples, xhz, start, noise, already):
+  # returns a Decode, or None
+  def process1a(self, samples, xhz, start, noise, already):
     global hetero_thresh
-
-    # print "%d %.1f %d" % (len(samples), xhz, start)
 
     bin_hz = self.jrate / float(self.jblock) # FFT bin size, in Hz
 
@@ -577,11 +737,14 @@ class JT65:
     hza = self.guess_freq(samples, xhz)
     if hza == None:
         return None
-    if self.sync_bin(hza, 0) < 5 or self.sync_bin(hza, 0) + 2+64 > 2048:
+    if self.sync_bin(hza, 0) < 5:
         return None
-    #freq_off = hz - (sync_bin * bin_hz)
-    # shift samples down in frequency by freq_off
-    #samples = weakutil.freq_shift(samples, -freq_off, 1.0/self.jrate)
+    if self.sync_bin(hza, 125) < 5:
+        return None
+    if self.sync_bin(hza, 0) + 2+64 > self.jblock/2:
+        return None
+    if self.sync_bin(hza, 125) + 2+64 > self.jblock/2:
+        return None
 
     m = [ ]
     for i in range(0, 126):
@@ -590,8 +753,11 @@ class JT65:
       sync_hz = self.sync_hz(hza, i)
       freq_off = sync_hz - (sync_bin * bin_hz)
       block = samples[i*self.jblock:(i+1)*self.jblock]
-      block = weakutil.freq_shift(block, -freq_off, 1.0/self.jrate)
-      a = numpy.fft.rfft(block)
+
+      # block = weakutil.freq_shift(block, -freq_off, 1.0/self.jrate)
+      # a = numpy.fft.rfft(block)
+      a = weakutil.fft_of_shift(block, -freq_off, self.jrate)
+
       a = abs(a)
       m.append(a)
 
@@ -604,16 +770,15 @@ class JT65:
         bestv = None
         sync_bin = self.sync_bin(hza, pi)
         for j in range(sync_bin+2, sync_bin+2+64):
-          if bestj == None or m[pi][j] > bestv:
+          if j < len(m[pi]) and (bestj == None or m[pi][j] > bestv):
             bestj = j
             bestv = m[pi][j]
-        wins[bestj-sync_bin] += 1
+        if bestj != None:
+          wins[bestj-sync_bin] += 1
 
     # zero out bins that win too often. a given symbol
     # (bin) should only appear two or three times in
     # a transmission.
-    # XXX make more conservative since we're subtracting
-    # decoded transmissions.
     for j in range(2, 66):
         if wins[j] >= hetero_thresh:
             # zero bin j
@@ -638,7 +803,8 @@ class JT65:
         s0 = m[pi][b0] # level of strongest symbol
         sigs.append(s0)
 
-        s1 = numpy.mean(m[pi][sync_bin+2:sync_bin+2+64]) # mean of bins in same time slot
+        # mean of bins in same time slot
+        s1 = numpy.mean(m[pi][sync_bin+2:sync_bin+2+64])
 
         if s1 != 0.0:
             strength.append(s0 / s1)
@@ -661,13 +827,12 @@ class JT65:
     rawsnr /= (2500.0 / 2.7) # 2.7 hz noise b/w -> 2500 hz b/w
     snr = 10 * math.log10(rawsnr)
 
-
     if self.verbose and not (msg in already):
       print "%6.1f %5d: %2d %3.0f %s" % ((hza[0]+hza[1])/2.0, start, nerrs, snr, msg)
     already[msg] = True
 
-    self.got_msg(samples_minute, numpy.mean(hza), msg, nerrs, snr)
-    return [ hza, start, nerrs, msg, twelve ]
+    return Decode(hza, nerrs, msg, snr, None,
+                  start, twelve, time.time())
 
   # sa[] is 63 channel symbols, each 0..63.
   # it needs to be un-gray-coded, un-interleaved,
@@ -717,9 +882,12 @@ class JT65:
         # weakest first
         worst = sorted(range(0, 63), key = lambda i: strength[i])
 
+        best = None # [ matching_symbols, nerrs, msg, twelve ]
+
         # try various numbers of erasures.
         for iter in range(0, soft_iters):
-            nera = (iter % 35) + 5
+            #nera = (iter % 35) + 5
+            nera = int((random.random() * (max_soft - min_soft)) + min_soft)
             eras = [ ]
             for j in range(0, 63):
                 if len(eras) >= nera:
@@ -733,7 +901,22 @@ class JT65:
                 msg = self.unpack(twelve)
                 if broken_msg(msg):
                     continue
-                return [nerrs, msg, twelve ]
+                # re-encode, count symbols that match input to decoder, as score.
+                sy1 = self.rs_encode(twelve)
+                eqv = numpy.equal(sy1, sa)
+                neq = collections.Counter(eqv)[True]
+                if best == None or neq > best[0]:
+                    sys.stdout.flush()
+                    sys.stderr.flush()
+                    if best != None:
+                        sys.stdout.write("nerrs=%d neq=%d %s -> " % (best[1], best[0], best[2]))
+                        sys.stdout.write("nera=%d nerrs=%d neq=%d %s\n" % (nera, nerrs, neq, msg))
+                    sys.stdout.flush()
+                    best = [ neq, nerrs, msg, twelve ]
+            
+        if best != None:
+            sys.stdout.flush()
+            return best[1:]
 
     # Reed Solomon could not decode.
     return [-1, "???", None ]
@@ -915,6 +1098,27 @@ class JT65:
       a.append(decoded[i])
 
     return [ nerr.value, a ]
+
+  # call the Reed-Solomon encoder.
+  # twelve is 12 6-bit symbol numbers (after packing).
+  # returns 63 symbols.
+  def rs_encode(self, twelve):
+      int63 = c_int * 63
+      int12 = c_int * 12
+        
+      tw = int12()
+      for i in range(0, 12):
+          tw[i] = twelve[i]
+
+      out = int63()
+  
+      librs.rs_encode_(byref(tw), byref(out))
+    
+      a = [ ]
+      for i in range(0, 63):
+          a.append(out[i])
+
+      return a
 
 class JT65Send:
     def __init__(self):
@@ -1215,6 +1419,7 @@ def usage():
   sys.stderr.write("Usage: jt65.py -in CARD:CHAN [-center xxx]\n")
   sys.stderr.write("       jt65.py -file fff [-center xxx] [-chan xxx]\n")
   sys.stderr.write("       jt65.py -bench\n")
+  sys.stderr.write("       jt65.py -nbench dir\n")
   sys.stderr.write("       jt65.py -send msg\n")
   # list sound cards
   weakaudio.usage()
@@ -1261,887 +1466,7 @@ if False:
 
   sys.exit(0)
 
-# what wsjt-x says is in each benchmark wav file.
-# files in jt65files/*
-bfiles = [
-    [ False, "jt65-1.wav", """
-      0065 -20  0.3  718 # VE6WQ SQ2NIJ -14
-      0065  -6  0.3  815 # KK4DSD W7VP -16
-      0065 -10  0.5  975 # CQ DL7ACA JO40
-      0065  -8  0.8 1089 # N2SU W0JMW R-14
-      0065 -11  0.8 1259 # YV6BFE F6GUU R-08
-      0065  -9  1.7 1471 # VA3UG F1HMR 73
-      0065  -1  0.6 1718 # BG THX JOE 73""" ],
-    [ False, "j5.wav", """
-      0000  -1  0.4  790 # CQ N8DEA/QRP EN91
-      0000  -7 -0.9 1259 # KM2S YV6BFE -11
-      0000  -9  0.9 1497 # CQ YV5DRN FK60""" ],
-    [ False, "j6.wav", """
-      0000 -26  1.2  610 # CQ VK2DX QF56
-      0000  -1  1.2 1020 # FK8HN W8TIC R-21
-      0000 -16  1.4 1358 # LU2DO KA5JTM EL29""" ],
-    [ True, "j7.wav", """
-      0000 -21  1.7  611 # VK2DX KD2FSI FN20
-      0000  -1  1.6  790 # CQ N8DEA/QRP EN91
-      0000 -10  0.2 1258 # KM2S YV6BFE RR73
-      0000  -9  2.1 1496 # VK6YTS YV5DRN -25""" ],
-    [ True, "j8.wav", """
-      0000 -24  2.1  611 # KD2FSI VK2DX -18
-      0000  -1  2.1 1020 # FK8HN W8TIC 73
-      0000 -26  1.7 1259 # YV6BFE RRTU73
-      0000 -17  1.8 1358 # LU2DO KA5JTM R-13
-      0000  -2  1.7 1711 # JQ1HDR KE4ZUN -19""" ],
-    [ False, "160421_1919.wav", """
-      1919  -1 -0.2  634 # S59GCD K9BCT EL96
-      1919 -22 -0.3  956 # WA3ETR K3JZ RR73
-      1919  -4 -0.3 1339 # SP3JHZ N4HYK EL87
-      1919  -6 -0.9 1563 # PY2RJ ES6DO -09
-      1919  -8 -1.2 1754 # IT9SUQ PD0RWL JO21""" ],
-    [ False, "160421_1921.wav", """
-      1921  -9  0.2  290 # K9BCT PA1JT JO21
-      1921 -10 -0.8  366 # CQ PD9BG JO21
-      1921 -13 -0.1  422 # SM2EKA 9A3BDE JN74
-      1921 -14  0.5  634 # S59GCD N8CWU R-09
-      1921  -3 -0.2  993 # CQ RJ3AA KO85
-      1921  -1  0.0 1340 # SP3JHZ N4HYK EL87
-      1921  -2 -0.3 1562 # PY2RJ ES6DO -09
-      1921 -18 -0.9 1753 # IT9SUQ PD0RWL R-01""" ],
-    [ False, "160421_1922.wav", """
-      1922 -20  0.1  699 # CQ W7DAU CN84
-      1922 -17 -0.3 1363 # CQ DX DK9JC JN39
-      1922  -1 -0.3 1611 # EA1HNY K1JSN 73
-      1922  -2 -0.7 1752 # PD0RWL IT9SUQ 73""" ],
-    [ False, "160421_1923.wav", """
-      1923 -12 -0.6  195 # CQ KB4QLL EL98
-      1923  -5  0.2  290 # CQ PA1JT JO21
-      1923 -12 -1.2  422 # SM2EKA K9GVM EN61
-      1923 -13  0.5  634 # S59GCD N8CWU R-09
-      1923  -4 -1.0  698 # W7DAU PD9BG JO21
-      1923 -15 -0.7  874 # R2DHC EA1BPA IN73
-      1923  -5 -0.3  993 # CQ RJ3AA KO85
-      1923 -19  0.5 1191 # CQ F5NAA JN39
-      1923  -1 -0.0 1340 # SP3JHZ N4HYK -10
-      1923 -11 -0.4 1618 # CQ ES6DO KO27""" ],
-    # ...
-    [ False, "160421_1958.wav", """
-1958 -11  2.7 1491 # CQ PD5HW JO22
-1958  -1 -0.2  283 # W0OS OE1SZW JN88
-1958 -10 -0.1  830 # CQ IZ8GUU JN70
-1958  -1 -0.4  973 # RJ3AA W5THT R-13
-1958 -16  0.2 1366 # CQ IT9SUQ JM77
-1958  -1 -0.2 1811 # CQ KK4RDI EM90""" ],
-    [ False, "160421_1959.wav", """
-1959 -13  0.4  287 # CQ PA1JT JO21
-1959 -10 -0.8  508 # CQ K9GVM EN61
-1959  -5 -0.2  592 # CQ WA2DX FN42
-1959 -14 -0.2  830 # IZ8GUU AI4DD EL87
-1959 -13 -0.3  972 # W5THT RJ3AA RR73
-1959 -14 -0.2 1182 # SQ9BZN EA3EJQ R-10
-1959 -11 -0.1 1811 # KK4RDI NV0O EM28""" ],
-    [ False, "160421_2020.wav", """
-2020  -9 -0.2  303 # WA3ETR IZ2QGB RR73
-2020  -7 -0.0  831 # WB8VGE IZ8GUU -17
-2020 -13 -1.7  923 # PU5MDD ON6UF 73
-2020  -7 -0.0 1024 # CQ IT9SUQ JM77
-2020 -12 -0.7 1234 # AI4DD K9GVM R-01
-2020  -1 -0.2 1332 # F5NAA KK4RDI R-20
-2020  -4 -0.2 1621 # OM4SX WB3D EL87""" ],
-    [ True, "160421_2021.wav", """
-2021 -14  0.3  694 # CQ IW1FOO JN35
-2021  -2  0.7 1031 # IT9SUQ KK4YEL EL98
-2021  -2 -0.2 1291 # PY1JD R73 OBR
-2021  -5 -0.5 1394 # CQ F5NAA JN39
-2021 -20 -0.2 1626 # WB3D OM4SX -16
-2021 -16 -0.1 1823 # CQ EA3EJQ JN11""" ],
-    [ True, "160421_2040.wav", """
-2040  -7 -0.2  350 # KE0HQZ RN2A R-19
-2040  -7  0.7 1056 # CQ IT9SUQ JM77
-2040  -1  0.1 1197 # CQ K9WZB DM24
-2040 -21  0.1 1410 # EB5AG PY7VI 73
-2040  -2  0.3 1589 # HF9D AM1MDC -15
-2040  -7 -0.1 1659 # GI4SZW K4WQ EL98""" ],
-    [ False, "160421_2041.wav", """
-2041  -7 -0.2  350 # RN2A KE0HQZ -20
-2041 -16 -0.0 1056 # IT9SUQ K3JZ CN87
-2041  -5 -0.1 1198 # K9WZB W1HIJ DM14
-2041  -8 -0.2 1408 # PY7VI EB5AG 73
-2041  -8 -0.1 1589 # AM1MDC HF9D R-06
-2041  -1 -0.2 1683 # PY7VI RJ3AA KO85""" ],
-    [ False, "160421_2115.wav", """
-2115 -14 -0.1 1491 # PD5HW OE3UKW -18
-2115  -6 -0.3  308 # W1JET KE0HQZ 73
-2115  -6 -1.6  434 # CQ OM3CUP JN88
-2115  -9 -0.4  622 # YV5MBI F4BQS -02
-2115  -1 -1.5 1230 # LZ1VDK KB5IKR EM70
-2115 -11  0.9 1460 # 2E0CIN EA1EAS RR73""" ],
-    [ False, "160421_2116.wav", """
-2116  -4 -1.2  433 # OM3CUP IW2DIW JN45
-2116 -11 -0.1 1246 # K9ZJ PY5VC GG46
-2116  -6 -1.7 1436 # CQ ON6UF JO10
-2116 -16  0.0 1723 # GK7KFQ PY7VI -10""" ],
-    [ False, "160421_2203.wav", """
-2203 -10  0.8  302 # KK4BMV F1LII -05
-2203  -1 -0.1  645 # M0TRJ W9MDB EM49
-2203  -8  0.2 1019 # KE0EFX IW2DIW R-14
-2203 -15 -0.1 1303 # VE2SCA EA5KL R-10
-2203  -1 -0.1 1611 # CQ K1JSN EM63
-2203  -1  0.8 1828 # KK2WW WW5TT -08""" ],
-    [ False, "160421_2204.wav", """
-2204  -9  0.1  645 # CQ M0TRJ JO02
-2204  -7 -0.1  851 # PY6JB GK4KAW IO70
-2204  -3 -0.1 1018 # IW2DIW KE0EFX R-15""" ],
-    [ False, "160421_2230.wav", """
-2230  -1  0.5 1496 # CQ WW5TT EM25
-2230 -15 -1.0  328 # KG7EZ PD9BG R-15
-2230 -19  0.0  574 # KD2EIP KG7NXU RRR
-2230  -3 -0.2  975 # W4DRK KA4RSZ EM73
-2230 -14  1.6 1271 # CQ KA0RGT DM79""" ],
-    [ False, "160421_2231.wav", """
-2231  -5  0.3 1494 # WW5TT KA5JTM EL29
-2231 -17 -0.2  329 # PD9BG KG7EZ RRR
-2231 -11 -0.2  367 # CQ KE0HQZ EN12
-2231  -4  0.2  975 # KA4RSZ W4DRK -09
-2231  -3 -0.0 1271 # KA0RGT W9BS EL96""" ],
-    [ False, "160421_2351.wav", """
-2351  -9 -0.1  278 # KE0HQZ K6BRN DM03
-2351  -6  0.3  635 # WB2LPC CO2VE -19
-2351 -12 -0.1 1202 # CQ N5OSK EM25
-2351 -16 -0.1 1554 # KD5RBW TU 73
-2351  -1  1.5 1697 # K9VER WD8LJP -05""" ],
-    [ False, "160421_2352.wav", """
-2352 -10 -0.2  279 # K6BRN KE0HQZ -01
-2352  -1 -0.1  478 # KD2CNC N4UQM R-01
-2352  -6  0.1  893 # KD6HWI PY7VI R-12
-2352  -1 -1.2 1696 # CQ DX CO3HMR EL82""" ],
-[ False, "160422_0001.wav", """
-0001 -22 -0.2  279 # KE0HQZ AF7HL R-01
-0001 -13  0.2  409 # AA1XQ K9VER R-11
-0001  -2  0.1  700 # CQ CO2VE EL83
-0001 -16 -0.3 1202 # CQ N5OSK EM25
-0001 -10 -0.1 1385 # KD2INN K6BRN 73
-0001 -10  0.2 1631 # KD5RBW W6DPD R-07
-0001  -1  1.5 1980 # VK2LAW WD8LJP 73
-""" ],
-[ False, "160422_0002.wav", """
-0002 -11 -0.3  279 # RR73 25W VERT
-0002  -1 -0.1  485 # KD2CNC K4PDS EM75
-0002 -15 -0.2  701 # CQ K1RI FN41
-0002 -22 -0.0 1202 # N5OSK VA3TX EN94
-0002  -1 -1.2 1592 # WA3ETR CO3HMR RR73
-0002 -21  0.3 1982 # WD8LJP VK2LAW 73
-""" ],
-[ False, "160422_0004.wav", """
-0004  -7 -0.3  279 # CQ KE0HQZ EN12
-0004 -13  0.0  319 # CQ DX PQ8VA GJ40
-0004  -1 -0.1  484 # KD2CNC K4PDS R-01
-0004  -5  0.1 1455 # W8NIL VE3KRP -05
-0004  -1 -1.3 1592 # CQ DX CO3HMR EL82
-""" ],
-[ False, "160422_0005.wav", """
-0005 -17 -0.7  277 # KE0HQZ N7NON DM43
-0005 -18 -0.3  318 # PQ8VA W6OPQ CM97
-0005  -3  0.2  701 # KC6WFS CO2VE -11
-0005  -7 -0.1 1034 # N1ARE K6BRN R-12
-0005 -10 -0.1 1202 # RR73 EQSLOTW
-0005 -18 -0.4 1260 # TI4DJ KD2HRD FN32
-0005  -1  1.4 1876 # CQ WD8LJP DM65
-""" ],
-[ False, "160422_0012.wav", """
-0012 -12 -0.3  278 # K4PDS KE0HQZ -03
-0012  -1  0.3 1088 # KD9CHO KA5JTM EL29
-0012  -1 -1.3 1591 # WA2DIY CO3HMR R-07
-0012 -18 -0.1 1800 # KC3FL N7DTP R-21
-0012 -17  0.3 1974 # CQ VK2LAW QF56
-0012 -13  0.0 2013 # KB3OZC TU 73
-""" ],
-[ False, "160422_0013.wav", """
-0013  -2 -0.1  283 # KE0HQZ K4PDS R-01
-0013 -17 -0.1  471 # CQ VE4DPR EN19
-0013  -3 -0.1  700 # K1RI K6BRN DM03
-0013 -14 -0.2  983 # AC0LP WI0E EN34
-0013 -11 -0.0 1202 # CQ N5OSK EM25
-0013  -5  1.5 1259 # CQ WD8LJP DM65
-0013 -14  0.3 1799 # N7DTP KC3FL RR73
-0013 -20 -0.2 2012 # CQ KB3OZC FN20
-""" ],
-[ False, "160422_0023.wav", """
-0023 -12 -0.2  279 # KE0HQZ N5PT EM15
-0023 -13 -0.0  469 # N5VX VE4DPR -05
-0023  -1 -0.1  716 # TF2MSN W5FDB R-10
-0023 -13 -0.1  950 # KD2CNC K6BRN R-18
-0023 -13 -0.2  984 # CQ N5OSK EM25
-0023 -14  0.0 1049 # CQ VE6RMB DO21
-0023 -19 -0.0 1257 # TI4DJ VA3TX EN94
-0023  -2  0.2 1426 # K9VER W7UT DM37
-0023  -1 -0.1 1973 # VK2LAW N4MRM EM78
-""" ],
-[ False, "160422_0024.wav", """
-0024  -1 -0.2  470 # VE4DPR N5VX R-03
-0024 -10 -0.2  716 # W5FDB TF2MSN 73
-0024  -8 -1.8 1146 # CQ YV5FRD FK60
-0024  -2  0.2 1256 # CQ TI4DJ EK70
-0024 -10  0.2 1425 # W7UT K9VER -08
-0024 -16 -0.1 1664 # CQ WA2HIP FN54
-""" ],
-[ False, "160422_0030.wav", """
-0030  -5 -0.1  834 # JR1AQN K4PDS EM75
-0030 -15 -0.1  469 # VE4DPR AC2PB R-12
-0030  -5  0.0 1049 # VE6RMB K3JZ CN87
-0030  -6  0.2 1254 # VA3TX TI4DJ RRR
-0030 -12  0.9 1868 # N4MRM WD5BFH 73
-""" ],
-[ False, "160422_0031.wav", """
-0031 -19  1.4  471 # 5W TU 73
-0031  -8 -0.2  987 # VA3RTX N5OSK -01
-0031  -1 -0.1 1641 # KD2INN N4WXB R-10
-0031  -1 -0.1 1664 # CQ N1DAY EM85
-0031  -1  0.9 1870 # WD5BFH N4MRM 73
-0031  -6  0.1 2152 # AA1XQ KA5JTM R-14
-""" ],
-[ False, "160422_0034.wav", """
-0034  -4 -0.1  833 # JR1AQN K4PDS R-08
-0034 -13  1.0 1050 # VE6RMB WB1ABQ R-05
-0034 -16  0.3 1253 # CQ TI4DJ EK70
-0034  -8  0.9 1372 # CQ K0JY DM68
-0034 -15 -0.2 2152 # AA1XQ K5RHD DM65
-""" ],
-[ True, "160422_0035.wav", """
-0035 -11 -0.3  986 # RR73 EQSLOTW
-0035 -17 -0.0 1049 # WB1ABQ RRR 73
-0035  -1 -0.2 1254 # TI4DJ N1DAY EM85
-0035  -1  0.0 1854 # K6LER N4MRM -14
-0035 -24 -0.2 2152 # K5RHD AA1XQ -04
-""" ],
-[ False, "160422_0036.wav", """
-0036  -2 -0.2  833 # QRZ+EQSL 73
-0036 -13  1.0 1049 # VE6RMB WB1ABQ 73
-0036 -19  0.2 1252 # CQ TI4DJ EK70
-0036 -10  0.3 1372 # VA3TX K0JY -07
-0036  -6 -0.2 2151 # AA1XQ K5RHD R-12
-""" ],
-[ False, "160422_0116.wav", """
-0116  -1 -0.2  291 # UN6TA K4PDS EM75
-0116 -20  0.3  981 # K7CAH NP4JV RR73
-0116  -1  0.4 1859 # KV4PC N4MRM RR73
-""" ],
-[ False, "160422_0117.wav", """
-0117 -18  0.3  510 # CQ K6LER CM95
-0117  -1 -0.3  750 # KD2INN K2MOB R-05
-0117 -17  0.2  983 # NP4JV K7CAH 73
-0117  -1 -0.0 1244 # TI4DJ K4KFN EM75
-0117  -1  0.3 1858 # TU DONALD 73
-""" ],
-[ False, "160422_0121.wav", """
-0121 -15  0.2  981 # KM4OVT K7CAH -18
-0121 -10  0.8 1228 # CQ WB9VGJ DM34
-0121  -3 -0.2 1558 # UN7FU PY7VI HI21
-0121  -1  0.1 1857 # N4MRM K4KFN R-16
-""" ],
-[ False, "160422_0122.wav", """
-0122  -1 -0.3  508 # K6LER N1DAY 73
-0122  -1  0.4 1859 # K4KFN N4MRM RRR
-""" ],
-[ False, "160422_0128.wav", """
-0128 -17  0.2  596 # CQ KB7RAF CM98
-0128 -23 -0.2  786 # WA3ETR W1FIT -06
-0128  -3 -0.2 1184 # CQ W9BBF EN54
-0128  -1 -0.2 1570 # CQ PY7VI HI21
-0128 -20  0.4 1858 # CQ N4MRM EM78
-""" ],
-[ False, "160422_0129.wav", """
-0129 -16 -0.0  309 # CQ WB9VGJ DM34
-0129  -1  0.0  596 # KB7RAF K4KFN EM75
-0129 -10  0.3  747 # KD2INN N6RBW -09
-0129  -8 -0.3 1188 # W9BBF K2MOB EM60
-0129  -2 -0.3 1563 # UN7FU W5FDB EM40
-""" ],
-[ False, "160422_0134.wav", """
-0134 -15 -0.2  842 # N7LVS NQ6F DM12
-0134 -18  0.2  562 # CQ NP4JV DM41
-0134  -8 -0.2 1199 # K2MOB W9BBF 73
-0134  -1 -0.2 1564 # K4KFN PY7VI R-10
-0134 -11 -0.1 1858 # NEDED WV TNX
-0134 -13  0.3 2173 # UN7FU KG5TED EM30
-""" ],
-[ False, "160422_0135.wav", """
-0135 -19 -0.0  305 # K4ARE WB9VGJ -12
-0135  -5 -0.3  561 # NP4JV W5FDB EM40
-0135  -4  0.2  962 # K8STS N6RBW -11
-0135  -1 -0.1 1565 # PY7VI K4KFN RRR
-0135 -18  1.1 2170 # KG5TED UN7FU -14
-""" ],
-[ False, "160424_1146.wav", """
-1146  -2  0.1  576 # VA3WLD W5ARX FM16
-1146  -6  0.3  868 # N9BUB QSO B4
-1146 -17 -0.1 1265 # CQ KG5INX EM20
-1146  -4 -0.5 1401 # KC2PQ KA8YYY 73
-1146  -8  0.5 1823 # AG6RS KB3OZC -11
-""" ],
-[ False, "160424_1147.wav", """
-1147  -1 -0.5  346 # CQ KD8ZEF FN13
-1147  -1 -0.9  575 # W5ARX VA3WLD R-15
-1147  -2 -0.9 1402 # KA8YYY KC2PQ 73
-1147 -15 -1.7 1829 # KB3OZC AG6RS R-12
-""" ],
-[ False, "160424_1230.wav", """
-1230  -4 -1.3  873 # KD8ZEF K3JSE R-05
-1230 -22 -0.1 1238 # K3VAT KG5INX -15
-1230  -1  0.9 1639 # WB8FVB KI8DU EM88
-1230  -1  0.2 1824 # CQ KB3OZC FN20
-1230  -1 -0.8 2113 # CQ VE1JBC FN73
-""" ],
-[ False, "160424_1231.wav", """
-1231 -19 -0.2  604 # CQ XE2YWH DL92
-1231  -6 -0.7  873 # K3JSE KD8ZEF RR73
-1231  -1  0.2 1239 # KG5INX K3VAT R-06
-1231 -19 -0.0 1639 # KI8DU WB8FVB -05
-""" ],
-[ True, "160424_1314.wav", """
-1314  -1  0.1  296 # AE7JP WB2SMK FN32
-1314 -19  0.0  504 # CQ AA1XQ FN41
-1314  -6  0.1 1686 # DE N8DEA/QRP 73
-1314  -1 -0.1 1995 # CQ VA3WLD FN03
-""" ],
-[ False, "160424_1315.wav", """
-1315  -1  0.5  508 # AA1XQ N3GGT FN21
-1315 -23  0.0  792 # VE5TLW W9MDB -07
-1315 -18  0.0 1995 # VA3WLD KC0DE EL96
-""" ],
-[ False, "160424_1438.wav", """
-1438 -19  0.1  561 # CQ N1PBC FN42
-1438 -15  0.0 1177 # AK4FC AJ4TF 73
-1438  -4 -0.0 1583 # N8DEA N8JK R-07
-""" ],
-[ False, "160424_1439.wav", """
-1439  -5  0.1 1585 # DE N8DEA/QRP 73
-""" ],
-[ False, "160424_1556.wav", """
-1556 -15 -1.0  382 # RA9FGW IU2EWY -10
-1556  -6 -1.2  649 # KB0PPQ K5KNM 73
-1556 -18 -1.6 1078 # CQ HA0ML KN17
-1556  -9 -0.8 1321 # IZ1KGY 9A0W -06
-1556  -2 -0.9 1517 # KB3JSV AB4QS R-15
-1556  -3 -2.9 1588 # KJ4TX N9PBD EM58
-1556  -1 -1.1 1768 # CQ KK4RDI EM90
-1556 -24 -1.1 2062 # EM30UT MI0TBV
-""" ],
-[ False, "160424_1557.wav", """
-1557  -2  1.3  650 # K5KNM KB0PPQ 73
-1557  -4 -0.1  736 # KB0DNP W4LVH FM02
-1557 -13  0.1  938 # K1GG W7UT DM37
-1557 -14 -0.3 1145 # VU2TS R3NA LO07
-1557 -13  0.2 1320 # 9A0W IZ1KGY R-06
-1557  -1  0.6 1774 # YV5ARM K4YYL EM84
-1557 -10 -0.1 2061 # CQ EM30UT KO4
-""" ],
-[ False, "160424_1611.wav", """
-1611 -11 -0.1  780 # YC8RBI OE3UKW -19
-1611  -1 -0.0  929 # CQ N9MUF EN51
-""" ],
-[ False, "160424_1612.wav", """
-1612 -14 -0.1  980 # CQ AM1MDC IN52
-1612 -16  1.5 1770 # HB9OBX IT9SUQ R-13
-1612 -20  0.9 1965 # CQ 9A6T JN75
-""" ],
-[ True, "160424_1638.wav", """
-1638 -12 -0.5  500 # IU2EWY R3NA 73
-1638 -13  0.6  777 # CQ YL3ID KO07
-1638 -14  0.3  956 # IU2EWY SQ9OUM -11
-1638 -12 -0.1 1253 # CQ KW4HQ EM74
-1638 -19  0.7 1357 # F6GIG 9A6T -11
-1638 -17 -0.2 1540 # VE4RK WA4UT EM66
-1638 -11 -0.2 1624 # WY1C F5BWS RRR
-1638  -9  0.3 1731 # DL9SAD IT9SUQ 73
-1638 -16  0.8 1801 # ZS6AI UR5WET KN19
-1638 -13  0.4 1878 # RD3FC AM1MDC -21
-1638  -1  1.2 2152 # N5RLM N4MRM -04
-""" ],
-[ False, "160424_1639.wav", """
-1639 -16 -0.2  486 # KW4CR N6YG RRR
-1639  -1 -0.2  778 # YL3ID K1JSN EM63
-1639 -10  0.3 1159 # CQ DX IK0XFD JN61
-1639 -21  0.1 1338 # EA3AMP RD3FC KO95
-1639  -1 -0.2 1624 # F5BWS WY1C 73
-1639 -11  0.4 2155 # N4MRM N5RLM R-09
-1639 -15  0.2 2257 # WA1PCY W0OS -10
-""" ],
-[ False, "160424_1640.wav", """
-1640 -21  0.4  373 # CQ PE1PNO JO21
-1640 -17  0.0  551 # RN4ABD SV6COH KM09
-1640  -3  0.8  607 # CQ W4DRK EL95
-1640 -10  0.7  774 # VE3TKB YL3ID -19
-1640 -12 -0.1  969 # CQ KK9G EN61
-1640 -16 -0.2 1361 # WY1C K7ADD CN97
-1640  -3 -0.3 1539 # VE4RK WA4UT EM66
-1640  -9 -0.2 1623 # WY1C F5BWS 73
-1640 -11  0.3 1729 # CQ IT9SUQ JM77
-1640 -11  0.1 1911 # CQ K4PPY FM03
-1640  -1  1.2 2152 # N5RLM N4MRM RR73
-""" ],
-[ False, "160424_1656.wav", """
-1656  -5 -0.2  283 # WB9VGJ KE0EFX R-06
-1656  -3  1.3  547 # CQ KB0PPQ EM29
-1656  -3 -0.2 1161 # DL2IAU WS5L EM12
-1656 -13 -0.4 1212 # N5RLM KE0HQZ -02
-1656 -18 -0.1 1403 # CQ DG2PHE JO51
-1656 -18 -0.6 1568 # CQ EA7FUW IM76
-1656  -9  0.3 1729 # CQ IT9SUQ JM77
-1656  -1  0.4 2152 # DJ0QO N4MRM -09
-1656  -7 -0.2 2478 # K8EAC F5BWS 73
-""" ],
-[ True, "160424_1657.wav", """
-1657  -8  0.2  282 # KB7MYO W0OS EN16
-1657 -19 -0.5  333 # EA3BJO EA1HMT 73
-1657 -12  0.4  509 # YE6YE DG9AK JN49
-1657 -10 -0.1  552 # N7LVS WT9WT RRR
-1657 -21 -0.1  853 # UR3LC M1WPB JO01
-1657  -4  0.7 1020 # VE4RK KC0FGX EN30
-1657  -5  0.4 1212 # KE0HQZ N5RLM R-05
-1657  -8  0.7 1243 # K6PVA KB0NRG EM27
-1657 -18 -0.6 1573 # EA7FUW R3NA LO07
-1657 -13  0.3 1910 # CQ K4PPY FM03
-1657  -1 -0.2 2055 # MM0LGS K1JSN -20
-1657  -3 -0.1 2152 # N4MRM DJ0QO JN39
-""" ],
-[ False, "160424_1725.wav", """
-1725 -20 -0.2  406 # TU 73 FROM NV
-1725 -10  0.7  492 # RA3QEH DL8ZBA R-08
-1725  -2  1.3  583 # CQ KB0PPQ EM29
-1725  -1 -0.2  738 # VA7REH KE0EFX R-15
-1725 -14 -1.8 1260 # DK3XX KJ0B EN36
-1725 -12 -0.1 1498 # SP5AN F5OJN -09
-1725  -1 -0.2 1866 # W0OS N1CZZ -01
-""" ],
-[ False, "160424_1726.wav", """
-1726 -18 -0.2  352 # CQ KK7X DN17
-1726  -7 -0.2  579 # DL2IAU WS5L EM12
-1726 -12  0.3  704 # HB9POU YL3ID -13
-1726 -10 -0.1  971 # VE6UX KK9G RRR
-1726 -16  0.8 1269 # CQ KP3IV FK68
-1726 -14  7.0 1426 # CQ KB0DNP EN10
-1726 -13  0.3 1625 # DL1MRD 2W0NAW -11
-1726 -10  0.2 1761 # CQ IT9SUQ JM77
-1726  -9  1.0 1865 # N1CZZ KA5JTM EL29
-1726 -11  0.2 2092 # ZS6AI DL1BQR JO73
-1726 -15  0.4 2290 # RA3TAT DC4DO R-15
-1726  -5 -0.2 2481 # KM4NHW OE3UKW -20
-""" ],
-[ False, "160424_1727.wav", """
-1727  -6 -0.1  492 # RA3QEH DL8ZBA RRR
-1727  -4  1.3  583 # NE1I KB0PPQ -03
-1727  -5 -0.2  738 # VA7REH KE0EFX 73
-1727 -18 -0.1  988 # HA7CH M6POB IO83
-1727  -8  0.2 1123 # KF5RSA KC0FGX EN30
-1727  -9 -0.2 1269 # KP3IV DL3NOC JO63
-1727  -8 -0.2 1430 # KB0DNP N4STV EL98
-1727  -9 -0.1 1499 # SP5AN F5OJN RR73
-1727  -2 -0.2 1866 # W0OS N1CZZ -01
-""" ],
-[ False, "160424_1728.wav", """
-1728 -14 -0.2  352 # CQ KK7X DN17
-1728  -6 -0.2  579 # DL2IAU WS5L EM12
-1728 -11 -0.1  971 # CQ KK9G EN61
-1728 -11  0.1  989 # M6POB HA7CH -01
-1728 -16 -0.1 1210 # CQ 2W0NAW IO81
-1728  -8  0.2 1761 # CQ IT9SUQ JM77
-1728 -18  0.1 1906 # AF5ZJ K4PPY RRR
-1728 -15  0.2 2095 # ZS6AI DL1BQR JO73
-1728 -19  0.4 2290 # RA3TAT DC4DO 73
-1728  -3 -0.2 2481 # KM4NHW OE3UKW -20
-""" ],
-[ True, "160424_1729.wav", """
-1729 -12 -0.2  268 # ALC CHECK
-1729 -11  0.3  349 # KK7X N0MEU DM79
-1729 -10 -0.1  492 # RA3QEH DL8ZBA 73
-1729  -4  1.3  582 # NE1I KB0PPQ RRR
-1729  -8 -0.2  745 # CQ KW4FQ EM75
-1729 -20 -0.2  988 # HA7CH M6POB R-01
-1729  -4  0.1 1123 # KF5RSA KC0FGX R-11
-1729  -2 -0.2 1269 # KP3IV DL3NOC R-17
-1729  -1 -0.2 1430 # KB0DNP N4STV EL98
-1729 -16  0.1 1625 # 2W0NAW DL1MRD 73
-1729 -14 -0.3 1906 # K4PPY AF5ZJ 73
-""" ],
-[ False, "160424_1730.wav", """
-1730  -5 -0.2  579 # DL2IAU WS5L EM12
-1730  -7 -0.2  971 # CQ KK9G EN61
-1730 -16  0.1  988 # M6POB HA7CH RRR
-1730 -14 -2.1 1255 # CQ PD5JVD JO32
-1730 -11  1.1 1426 # CQ KB0DNP EN10
-1730  -6 -0.1 1502 # F5OJN KE0EFX EM28
-1730  -4 -0.4 1762 # R9AT IT9SUQ R-17
-1730 -13 -0.0 1866 # CQ SQ9OUM JO90
-1730 -15  0.1 1906 # AF5ZJ K4PPY 73
-1730 -17 -0.1 2486 # F5BWS N4THG EM86
-""" ],
-[ True, "160424_1826.wav", """
-1826  -2 -0.3  317 # US7IS WA2DX FN42
-1826 -25 -0.2  602 # SQ5WAJ M6RUG -01
-1826 -25 -0.3  790 # 2D0YLX SP5AN KO02
-1826 -15 -0.3  954 # CQ W4ORS EM64
-1826  -2  0.2 1064 # KC2NEO W0NEO -20
-1826  -9 -0.2 1107 # SA5REK G3MZV -20
-1826  -9  0.5 1273 # AA2DP KP3IV RR73
-1826  -1 -0.4 1519 # K3CWF KD0YTE EN30
-1826 -18  0.3 1785 # 2D0YLX SQ9OUM 73
-1826  -5  0.1 1907 # N5TF PA3AJH JO32
-1826 -11 -0.3 2082 # CQ PD0ONJ JO22
-1826 -22 -0.3 2358 # 2D0YLX KM2S FN20
-""" ],
-[ False, "160424_1827.wav", """
-1827 -11  0.1  316 # CQ US7IS KN98
-1827 -17 -0.2  456 # OH8MXJ EA3AMP JN01
-1827 -11 -1.9  602 # M6RUG SQ5WAJ R-12
-1827  -7  0.1  850 # RA6ATV DL1BQR 73
-1827  -1  1.7 1109 # CQ N5TF EM50
-1827  -6 -0.3 1517 # VK2POP DK4CF R-15
-1827 -13 -0.1 1541 # CQ F5OJN JN05
-1827 -18 -0.3 1957 # CQ OE6KLG JN77
-""" ],
-[ False, "160424_1909.wav", """
-1909 -13  0.6  182 # 2D0YLX OZ1PGB
-1909  -1 -0.1  350 # KK7X KW4HQ R-26
-1909  -5  0.8  568 # CQ W0NEO EM36
-1909  -5  0.5  791 # CQ DL8ZBA JN49
-1909 -13 -0.5 1257 # CQ M1WPB JO01
-1909 -20 -2.5 1331 # CQ EA8CDW IL28
-1909 -11  1.8 1483 # 2D0YLX HA3LI JN96
-1909 -20  0.3 1555 # CQ ON4CJU JO20
-1909  -9 -1.0 1757 # OE6KLG PA2BT JO21
-1909  -1 -1.5 1861 # MM0HVU W9RY EM57
-1909  -4 -0.3 2153 # CQ AC9HP EM69
-""" ],
-[ True, "160424_1910.wav", """
-1910 -21 -0.3  459 # CQ SQ3SKN JO72
-1910 -19  0.1  568 # W0NEO N7RJN DM33
-1910 -10  0.3  645 # CQ PA1JT JO21
-1910  -8 -0.0  785 # VE7JH W8OU EM15
-1910 -13  0.1  984 # N1PBC SP7SMF -12
-1910 -19 -0.3 1119 # CQ NC7L DM33
-1910  -5 -0.2 1256 # N6YG WP4PGY 73
-1910 -10  0.1 1384 # YE6YE PD5MJF 73
-1910  -1 -0.2 1530 # CQ K9EEH VY0
-1910  -1 -0.3 1678 # CQ KD9EOT EN62
-1910 -17 -0.6 1893 # KE5YTA 73
-1910 -15  0.8 2307 # PSE MY RAPORT
-""" ],
-[ False, "160424_1952.wav", """
-1952  -6  0.1  813 # VE7JH KD0JHZ EN41
-1952  -1 -0.4  180 # GI7UGV RN2F -04
-1952 -16 -0.2  394 # NO7P KC7EQL -17
-1952  -6 -0.4  419 # CT1FBK VP9NO 73
-1952 -10  0.2  478 # IW4EJK KC0FGX R-10
-1952 -15 -0.6  605 # KK6ILV W7IWW DN55
-1952  -1 -0.3  882 # M1WPB K0ZRK EM36
-1952 -15  0.3 1226 # CQ DX XE2SIV DM22
-1952 -12 -0.3 1249 # KB3X W7YLQ R-02
-1952 -12 -0.6 1588 # CQ SQ9OUM JO90
-1952  -2 -0.2 1615 # CQ KD9DHT EM69
-1952  -1 -0.2 1938 # K4KFN IT9SUQ 73
-1952 -16 -0.6 2288 # KE4ZUN K0GRC R-16
-""" ],
-[ False, "160424_1953.wav", """
-1953  -5 -0.1  477 # KC0FGX IW4EJK 73
-1953 -11 -0.3  628 # VP9NO HA3LI JN96
-1953 -12 -0.4  882 # CQ M1WPB JO01
-1953  -1 -0.7 1227 # XE2SIV W9RY EM57
-1953  -2 -0.4 1481 # VE3TMT KB0NNV EM38
-1953 -21  0.1 1717 # NC7L N5OHM 73
-1953  -7 -1.0 1753 # PA3GPT PA2BT RR73
-1953  -9 -0.4 2289 # K0GRC 73
-""" ],
-[ True, "160424_2036.wav", """
-2036  -7 -1.0  810 # CQ M6DHV IO84
-2036  -9 -0.2  363 # CQ SP8AWL KO11
-2036 -14 -0.2  433 # CQ KC7EQL CN88
-2036 -22 -0.8  644 # K9GVM K7QDX DM34
-2036 -17 -0.3  972 # KD2HNS ON8ON R-09
-2036 -12 -0.3 1039 # CQ IK1MDH JN35
-2036 -22 -0.4 1260 # CQ LZ1UBO KN12
-2036 -13 -0.6 1404 # K2DAR S55RD 73
-2036  -3 -0.0 1663 # WD4GBW MM0HVU 73
-2036  -7  1.6 1975 # M0NMC IT9SUQ 73
-2036  -1 -0.8 2412 # WD8LJP KG4NMS 73
-""" ],
-[ False, "160424_2037.wav", """
-2037  -1 -0.1  811 # M6DHV KB5IKR EM70
-2037  -8  1.4  250 # VE4RK KB0PPQ 73
-2037  -1 -0.8  643 # K7QDX K9GVM -16
-2037  -6 -0.4 1039 # IK1MDH KB1CTC EM92
-2037 -10 -0.3 1217 # LU1XP HA5FTL JN97
-2037 -23 -0.3 1608 # CQ DX K3JZ CN87
-2037  -3 -0.1 1970 # CQ KW4HQ EM74
-2037  -1  0.8 2408 # KG4NMS WD8LJP 73
-""" ],
-[ True, "160424_2054.wav", """
-2054  -8 -1.0  815 # VA3TX M6DHV RRR
-2054 -16  0.8  453 # CQ M6MKF IO94
-2054 -11 -0.2  553 # CQ IK3PQG JN55
-2054  -1  1.6 1024 # EA1EI N5TF R-10
-2054 -16 -0.2 1204 # WA2HIP HA5FTL 73
-2054 -17  0.4 1320 # CO2BG DJ5CS JN49
-2054  -7  0.8 1477 # CQ YV5FRD FK60
-2054 -12 -0.8 1712 # KC3AK SP5FCZ 73
-2054  -6  0.5 1945 # K9ZJ 9A3BDE JN74
-2054  -8 -0.9 2029 # AGN PLS MM0HV
-2054 -11 -0.5 2213 # LA3LUA EB5AG -06
-2054 -19 -0.0 2378 # CQ EA1FFT IN73
-""" ],
-[ True, "160424_2055.wav", """
-2055 -13 -0.9  829 # CQ K9GVM EN61
-2055  -1  0.1  319 # KA1MR DF4WQ JN39
-2055 -25 -0.4  688 # YV5FRD SP5XSD KO03
-2055 -22 -0.3  758 # CQ DX K3JZ CN87
-2055  -1 -0.1 1025 # CQ EA1EI IN63
-2055  -1 -0.4 1322 # CO2BG WA4UT EM66
-2055 -17 -0.3 1806 # CQ IK1MDH JN35
-2055 -11 -0.1 1948 # KF7WNX K9ZJ R-01
-2055 -16 -0.4 2037 # CQ DX DL7UHD JO62
-""" ],
-[ False, "160424_2056.wav", """
-2056  -6 -1.0  815 # VA3TX M6DHV 73
-2056 -12  0.8  453 # CQ M6MKF IO94
-2056  -1  1.6  552 # ON8ON N5TF R-17
-2056 -12 -0.9 1014 # WA3NSM MM0HVU IO85
-2056  -9 -0.5 1209 # CQ PH7Y JO21
-2056 -13 -0.8 1252 # CO6CG SP5FCZ KO02
-2056 -15  2.2 1318 # IW2DIW CO2BG R-05
-2056  -4  0.8 1477 # CQ YV5FRD FK60
-2056 -18  0.0 1712 # KC3AK DL1MRD JO43
-2056 -16 -0.4 2029 # VP9NO OE3UKW -14
-2056 -11 -0.5 2211 # LA3LUA EB5AG 73
-""" ],
-[ False, "160424_2108.wav", """
-2108 -14  1.7  352 # R3KF PB1HF -05
-2108 -13 -0.5  565 # CQ G4TZX JO01
-2108 -17 -0.5  946 # IU2EWY EI3CTB R-20
-2108 -18 -1.8  985 # CQ KB1ESX FN42
-2108 -16 -0.2 1139 # S56RGA EA3CH 73
-2108  -9  0.0 1604 # PD5CVK R3KF KO91
-2108 -18  0.0 1819 # CQ GM4ZET IO86
-""" ],
-[ False, "160424_2109.wav", """
-2109 -10 -0.6  680 # CQ I1RJP JN45
-2109  -1 -0.5  985 # KB1ESX N3DGE FN20
-2109 -18 -0.1 1340 # CQ IT9KPE JM68
-2109 -21 -0.4 1819 # GM4ZET DL1ZBB JO40
-""" ],
-[ False, "160424_2125.wav", """
-2125  -5 -0.7  470 # VP9NO SQ6WZ R-15
-2125  -6 -1.0  681 # CQ I1RJP JN45
-2125  -9 -0.1  929 # AX2LAW CT1EKU IM58
-2125 -11 -0.5 1106 # SP5FCZ IT9KPE JM68
-2125 -13 -0.3 1140 # CQ S56RGA JN65
-2125 -11 -0.8 1818 # GM4ZET LA2VRA R-04
-2125 -11 -0.8 2010 # PB1HF GK4KAW RRR
-""" ],
-[ False, "160424_2126.wav", """
-2126  -1 -0.5  466 # SQ6WZ VP9NO 73
-2126 -17  0.2 1818 # LA2VRA GM4ZET RR73
-""" ],
-[ False, "160424_2232.wav", """
-2232  -1 -0.6  876 # EI3CTB WX2H FN20
-2232 -17 -0.4 1103 # CQ K1KEN EL87
-2232  -1 -0.6 1376 # M0XAG IK2WSO JN45
-2232  -5 -1.1 1504 # KA4RSZ K4HVF -08
-2232 -18 -0.2 1694 # PF7M EA3HXB RR73
-2232  -4 -0.2 1861 # CO6CG K9EEH EN51
-2232  -1 -0.6 2074 # CQ DX K6EID EM73
-2232 -16 -0.5 2318 # CQ SP5AN KO02
-""" ],
-[ False, "160424_2233.wav", """
-2233 -18 -0.5  812 # CQ G1VIF IO93
-2233  -1 -0.8  455 # PY2JEA I1RJP JN45
-2233  -6 -0.2  982 # GK4KAW OE6KLG 73
-2233 -16 -0.6 1152 # CQ W1FNB FN33
-2233 -18 -0.3 1178 # ZP9MCE UN1L R-08
-2233 -12 -0.8 1376 # CQ M0XAG IO83
-2233  -7 -0.5 1505 # K4HVF KA4RSZ R-04
-2233  -7 -0.7 1694 # CQ PF7M JO33
-2233  -2 -0.5 1920 # CQ G3MZV IO81
-""" ],
-[ False, "160425_0000.wav", """
-0000  -7 -1.8  388 # CQ K0NJR EN26
-0000  -1 -0.7  629 # CQ K9JKM EN52
-0000  -2 -0.3  969 # WX2H IK3PQG RR73
-0000 -16 -0.6 1172 # W0NEO KD9EOT EN62
-0000  -7 -3.2 1275 # UN1L AB1KW FN43
-0000 -14  0.3 1615 # CQ SP6ECQ JO71
-0000  -2 -0.4 1731 # KC1EDK KD9DHT -18
-0000  -1 -0.5 1981 # K8KJG VE3RUV 73
-0000  -1  0.5 2181 # CQ YV4DHS FK60
-""" ],
-[ False, "160425_0001.wav", """
-0001  -1 -0.2  388 # K0NJR KD8BIN EN81
-0001  -1 -0.9  614 # K9JKM I1RJP JN45
-0001  -1 -0.7  968 # IK3PQG WX2H -08
-0001 -10 -0.3 1173 # CQ W0NEO EM36
-0001  -6 -0.4 1460 # CQ WB0ZYU EM29
-0001  -1 -0.4 1731 # KD9DHT KC1EDK R-05
-0001 -13 -0.1 1959 # CQ CA3ECM FF46
-0001  -1 -1.4 2181 # YV4DHS K8KJG FM09
-""" ],
-[ False, "160425_0124.wav", """
-0124  -1 -0.6  291 # YV6GM W0JMP EN34
-0124  -4 -1.8  419 # CQ K0NJR EN26
-0124  -9  0.4  585 # CQ NP4AM FK68
-0124  -1 -0.6  902 # KC1EDK K0DMW -08
-0124  -9 -0.4 1200 # CQ DX YV5KG FK60
-0124 -10 -0.3 1403 # TU PAUL 73
-0124 -18 -0.7 1597 # VE3NLS KD9EOT 73
-0124  -4 -0.7 1809 # VE3RUV KO4LZ R-15
-0124 -11  0.4 2096 # CQ IW0GBO JN61
-""" ],
-[ False, "160425_0125.wav", """
-0125 -11 -0.5  902 # K0DMW KC1EDK R-05
-0125  -1  0.1 1203 # SV1CIF KD5OSN 73
-0125  -6 -0.6 1403 # KC3AK KM4LLF 73
-0125  -1 -0.1 1598 # CQ VE3NLS FN04
-0125  -2 -0.7 1810 # KO4LZ VE3RUV 73
-0125  -1  0.3 2097 # IW0GBO KW4QY FM05
-""" ],
-[ False, "160425_0229.wav", """
-0229 -20 -0.3  363 # PY2DPM K7EMI R-22
-0229 -13  0.7  588 # UA9SHH UY2IS 73
-0229  -8 -2.0  680 # NC7L KE5SV EM10
-0229  -2 -0.1  774 # CQ YV5KAJ FK60
-0229  -1 -0.6 1018 # KE7II NW9F -15
-0229 -16 -0.1 1477 # VE3KAO PY2RJ GG66
-0229  -1 -0.7 1778 # W0OS KF2T RRR
-0229  -1 -1.1 2058 # PY7ZZ KG4NMS EM60
-""" ],
-[ True, "160425_0230.wav", """
-0230  -9  1.0  364 # K7EMI RRR 73
-0230  -4 -1.2  465 # WZ4K I1RJP JN45
-0230 -12 -0.7  680 # KE5SV NC7L -03
-0230 -17 -0.4  776 # YV5KAJ RM7L LN07
-0230 -21 -0.7 1017 # NW9F KE7II R-10
-0230  -8 -0.7 1268 # CQ OP4A JO21
-0230  -1 -0.1 1481 # KG4NMS VE3KAO -17
-0230 -10 -0.2 1715 # N8FKF N4NQY -20
-0230  -4 -0.3 1777 # KF2T W0OS 73
-0230  -9 -0.9 2055 # KG4NMS PY7ZZ -14
-""" ],
-[ False, "160425_0411.wav", """
-0411 -25 -0.7  596 # KG7VGD W1FIT -06
-0411 -19  0.1 1306 # CQ OE6ATD JN76
-0411  -9 -0.1 1341 # KK4RDI SP2CDN R-20
-0411  -9 -0.8 1701 # CQ N3BEN CM99
-0411  -1 -1.3 2107 # WA2HIP IK5BCM JN53
-0411  -1 -1.3 2331 # VA3MJR KG4NMS 73
-""" ],
-[ False, "160425_0412.wav", """
-0412  -1 -1.4  395 # W5TT I1RJP JN45
-0412  -9 -0.0  595 # W1FIT KB0DNP EN10
-0412 -13 -0.8  859 # W9EO NC7L RRR
-0412 -22 -0.8  990 # KB0DNP KQ2Z FN30
-0412 -12 -0.7 1220 # UA3GDJ IZ3XJM -06
-0412  -1  0.3 1307 # OE6ATD KA9HQE EN54
-0412  -9 -0.8 1700 # N3BEN KK4RDI EM90
-0412 -16 -0.8 2107 # CQ WA2HIP FN54
-0412  -7 -0.7 2330 # KG4NMS EA3CFV -16
-""" ],
-[ False, "160425_0517.wav", """
-0517  -2 -1.5  558 # CQ I1RJP JN45
-0517  -6 -0.3  769 # CQ PY2DPM GG66
-0517  -7 -0.9  793 # N6YFM K5VP CN85
-0517  -6 -3.0 1048 # CQ IW2MYH JN45
-0517  -7 -0.9 1849 # CQ K0FG EM38
-0517  -8 -0.9 2058 # DL6TY W9HZ RRR
-0517  -2 -1.1 2256 # F5BWS KF5YDG R-18
-""" ],
-[ False, "160425_0518.wav", """
-0518 -11 -1.0  375 # CQ IU4APO JN54
-0518  -4 -1.4  768 # PY2DPM IK2IWT JN55
-0518 -18 -0.9 1050 # IW2MYH WA2HIP FN54
-0518  -7  0.2 1365 # CQ IK8IJN JM78
-0518  -1 -0.7 1634 # SV5AZK IT9FGA JM67
-0518 -19 -0.9 2059 # RRR MITCH 73
-0518 -12 -1.1 2256 # KF5YDG F5BWS RRR
-""" ],
-[ False, "160425_0620.wav", """
-0620  -6 -1.6  431 # AX5AW I1RJP JN45
-0620  -9 -0.9  774 # EA5WO KC7UBS -13
-0620  -4 -1.4  970 # IZ0MIO KG4NMS -18
-0620 -17 -1.0 1725 # PD0LK IU1BOW 73
-0620  -1 -1.0 2169 # PY2DPM N5BCA EM12
-0620 -13 -0.4 2324 # CQ PA2WCB JO21
-""" ],
-[ False, "160425_0621.wav", """
-0621  -1 -0.6  775 # KC7UBS EA5WO IM99
-0621 -17 -0.8  972 # KG4NMS IZ0MIO R-15
-0621  -8 -2.5 1725 # IU1BOW PD0LK 73
-0621  -5 -0.5 2169 # AE4NT PY2DPM -16
-""" ],
-[ False, "160425_0723.wav", """
-0723 -11 -1.1  382 # FB QRP73
-0723 -19 -0.9  596 # AX2VLT AX7RB -01
-0723  -7  0.2  685 # CQ KT4DLB EM61
-0723  -5 -0.1  847 # F4GCZ DJ6JJ -03
-0723 -14  0.3 1761 # CQ PF3X JO21
-0723  -8 -1.0 2076 # G8HXE KD6RF EM22
-""" ],
-[ False, "160425_0724.wav", """
-0724 -12 -1.0  810 # N9TES KC7UBS RRR
-0724  -6  0.5  685 # KT4DLB 9Y4NW FK90
-0724 -20 -1.6 1157 # CQ IV3IIM JN65
-0724  -5 -0.8 1695 # KO3F W6DLM CN87
-0724 -10 -0.1 2076 # CQ G8HXE VK
-""" ],
-[ False, "160425_0820.wav", """
-0820  -1 -1.4  863 # CE3RR KG4NMS EM60
-0820 -20 -1.8 1098 # AE4NT AC8SM -08
-0820  -1 -0.6 1741 # KH6NX W0HUR EN41
-0820  -4 -1.0 2198 # JF1XUD WB5TOI -18
-""" ],
-[ False, "160425_0821.wav", """
-0821 -11 -0.6  827 # F4GCZ PA2WCB JO21
-0821  -7 -1.0 1098 # AC8SM AE4NT R-04
-0821 -12 -1.0 1172 # KG4NMS GK4KAW IO70
-0821  -9 -1.1 1741 # W0HUR KH6NX -14
-""" ],
-[ False, "160425_0838.wav", """
-0838 -14 -1.0 1739 # KH6NX VK3FZ QF22
-0838  -4 -1.0 2198 # JH1XVQ WB5TOI -09
-""" ],
-[ False, "160425_0839.wav", """
-0839 -12 -1.1 1097 # CQ KC7UBS DN74
-0839  -7 -1.1 1266 # CQ KH6NX BL11
-0839  -1 -1.4 1711 # W6MRR KG4NMS 73
-""" ],
-[ False, "160425_0930.wav", """
-0930  -4 -0.9  577 # WJ1B TU 73
-0930  -2 -1.0  994 # WH6HI K8AJX R-10
-0930  -8 -1.2 2103 # KG4NMS KA5JTM R-20
-0930  -1 -0.7 2221 # VK6DW KG4NMS -20
-""" ],
-[ False, "160425_0931.wav", """
-0931 -20 -0.9  578 # K5NJ WJ1B 73
-0931 -11 -0.7  775 # AA1XQ WB6PVU CM87
-0931  -9 -1.0  994 # ALOHA73 WH6HI
-0931  -9 -1.2 1628 # W2GLH WB5GM EM10
-""" ],
-[ False, "160425_1055.wav", """
-1055 -19 -1.0  781 # W0WKO VK2DX R-20
-1055 -14 -0.2 1252 # AC8SM ZL3TE -10
-1055  -6 -1.2 1592 # CQ AX3BL QF22
-""" ],
-[ False, "160425_1056.wav", """
-1056 -17 -0.8  780 # VK2DX W0WKO RRR
-1056  -1 -1.4 1251 # ZL3TE AC8SM R-20
-1056  -1 -1.4 1592 # AX3BL NS9I EN64
-1056  -1 -1.1 2367 # CQ DX KD4MDC EM78
-""" ],
-[ False, "160425_1122.wav", """
-1122 -14 -1.5  913 # VE2GHI N5BCA EM12
-1122  -5 -1.2  969 # JA1PLT KF4RWA EM63
-1122  -3 -0.6 1253 # ZL3TE N5RLM R-10
-1122 -19 -0.8 1600 # AX3BL KA5JTM EL29
-1122  -1 -1.2 2237 # VK2DX K8EAC FM18
-""" ],
-]
-
-def benchmark(verbose):
+def benchmark1(dir, bfiles, verbose):
     global chan
     chan = 0
     score = 0 # how many we decoded
@@ -2153,7 +1478,7 @@ def benchmark(verbose):
             print bf[1]
         wsa = bf[2].split("\n")
 
-        filename = "jt65files/" + bf[1]
+        filename = dir + "/" + bf[1]
         r = JT65()
         r.verbose = False
 
@@ -2173,11 +1498,11 @@ def benchmark(verbose):
                 wsmsg = wsmsg.replace(" ", "")
                 found = False
                 for x in all:
-                    mymsg = x[2]
+                    mymsg = x.msg
                     mymsg = mymsg.replace(" ", "")
                     if mymsg == wsmsg:
                         found = True
-                        got[x[2]] = True
+                        got[x.msg] = True
                 if found:
                     score += 1
                     if verbose:
@@ -2188,116 +1513,163 @@ def benchmark(verbose):
                 sys.stdout.flush()
         if True and verbose:
             for x in all:
-                if x[4] < 25 and not (x[2] in got):
-                    print "MISSING: %6.1f %d %.0f %s" % (x[1], x[4], x[5], x[2])
+                if x.nerrs < 25 and not (x.msg in got):
+                    print "MISSING: %6.1f %d %.0f %s" % (x.hz(), x.nerrs, x.snr, x.msg)
     if verbose:
         print "score %d of %d" % (score, wanted)
     return [ score, wanted ]
 
-def smallmark():
-    global budget, noffs, off_scores, pass1_frac, hetero_thresh, soft_iters
+# given a file with wsjt-x 1.6.0 results, sitting in a directory
+# fill of the corresponding .wav files, do our own decoding and
+# compare results with wsjt-x.
+# e.g. benchmark("nov/wsjt.txt") or benchmark("jt65files/big.txt").
+# wsjt-x output is cut-and-paste from wsjt-x decode display.
+# 2211  -1 -0.3  712 # S56IZW WB8CQV R-13
+# 2211 -12  0.0  987 # VE2NCG K8GLC EM88
+# wav file names look like 161122_2211.wav
+def benchmark(wsjtfile, verbose):
+    dir = os.path.dirname(wsjtfile)
+    minutes = { } # keyed by hhmm
+    wsjtf = open(wsjtfile, "r")
+    for line in wsjtf:
+        line = re.sub(r'\xA0', ' ', line) # 0xA0 -> space
+        line = re.sub(r'[\r\n]', '', line)
+        m = re.match(r'^([0-9]{4}) +[0-9.-]+ +[0-9.-]+ +[0-9]+ +# *(.*)$', line)
+        if m == None:
+            print "oops: " + line
+            continue
+        hhmm = m.group(1)
+        if not hhmm in minutes:
+            minutes[hhmm] = ""
+        minutes[hhmm] += line + "\n"
+    wsjtf.close()
 
-    o_budget = budget
-    o_noffs = noffs
-    o_off_scores = off_scores
-    o_pass1_frac = pass1_frac
-    o_hetero_thresh = hetero_thresh
-    o_soft_iters = soft_iters
+    info = [ ]
+    for hhmm in minutes:
+        ff = [ x for x in os.listdir(dir) if re.match('......_' + hhmm + '.wav', x) != None ]
+        if len(ff) == 1:
+            filename = ff[0]
+            info.append([ True, filename, minutes[hhmm] ])
+        elif len(ff) == 0:
+            sys.stderr.write("could not find .wav file in %s for %s\n" % (dir, hhmm))
+        else:
+            sys.stderr.write("multiple files in %s for %s: %s\n" % (dir, hhmm, ff))
 
-    for off_scores in [ 2, 3, 4, 5, 6, 7 ]:
-        sc = benchmark(False)
-        print "%d : off_scores=%d" % (sc[0], off_scores)
-    off_scores = o_off_scores
+    return benchmark1(dir, info, verbose)
 
-    for hetero_thresh in [ 3, 5, 6, 7, 8, 9, 11 ]:
-        sc = benchmark(False)
-        print "%d : hetero_thresh=%d" % (sc[0], hetero_thresh)
-    hetero_thresh = o_hetero_thresh
+def optimize(wsjtfile):
+    vars = [
+        # [ "weakutil.use_numpy_rfft", [ False, True ] ],
+        # [ "weakutil.use_numpy_arfft", [ False, True ] ],
+        # [ "weakutil.fos_threshold", [ 0.125, 0.25, 0.5, 0.75, 1.0 ] ],
+        [ "noffs", [ 1, 2, 3, 4, 6, 8 ] ],
+        [ "pass1_frac", [ 0.05, 0.1, 0.2, 0.3 ] ],
+        [ "min_soft", [ 5, 10, 15, 20, 25, 30, 35 ] ],
+        [ "max_soft", [ 30, 35, 40, 45 ] ],
+        [ "budget", [ 6, 9, 15 ] ],
+        [ "soft_iters", [ 0, 25, 50, 75, 100, 200, 400, 800 ] ],
+        # [ "off_scores", [ 1, 2, 4 ] ],
+        # [ "hetero_thresh", [ 4, 6, 8, 10 ] ],
+        ]
 
-    for budget in [ 5, 6, 7, 8, 9, 10]:
-        sc = benchmark(False)
-        print "%d : budget=%d" % (sc[0], budget)
-    budget = o_budget
+    sys.stdout.write("# ")
+    for v in vars:
+        sys.stdout.write("%s=%s " % (v[0], eval(v[0])))
+    sys.stdout.write("\n")
 
-    for noffs in [ 2, 3, 4, 5, 6 ]:
-        sc = benchmark(False)
-        print "%d : noffs=%d" % (sc[0], noffs)
-    noffs = o_noffs
+    # warm up any caches, JIT, &c.
+    r = JT65()
+    r.verbose = False
+    r.gowav("jt65files/j7.wav", 0)
 
-    for pass1_frac in [ 0.2, 0.3, 0.4, 0.45, 0.5, 0.55, 0.6, .7 ]:
-        sc = benchmark(False)
-        print "%d : pass1_frac=%.2f" % (sc[0], pass1_frac)
-    pass1_frac = o_pass1_frac
+    for v in vars:
+        for val in v[1]:
+            old = None
+            if "." in v[0]:
+                xglob = ""
+            else:
+                xglob = "global %s ; " % (v[0])
+            exec "%sold = %s" % (xglob, v[0])
+            exec "%s%s = %s" % (xglob, v[0], val)
 
-    for soft_iters in [ 50, 75, 90, 100, 110, 125, 130, 160 ]:
-        sc = benchmark(False)
-        print "%d : soft_iters=%d" % (sc[0], soft_iters)
-    soft_iters = o_soft_iters
+            #sys.stdout.write("# ")
+            #for vx in vars:
+            #    sys.stdout.write("%s=%s " % (vx[0], eval(vx[0])))
+            #sys.stdout.write("\n")
 
-filename = None
-desc = None
-bench = None
-small = None
-send_msg = None
+            sc = benchmark(wsjtfile, False)
+            exec "%s%s = old" % (xglob, v[0])
+            sys.stdout.write("%s=%s : " % (v[0], val))
+            sys.stdout.write("%d\n" % (sc[0]))
+            sys.stdout.flush()
 
 def main():
-  global filename, desc, bench, send_msg, small
+    # gc.set_debug(gc.DEBUG_STATS)
+    thv = gc.get_threshold()
+    gc.set_threshold(10*thv[0], 10*thv[1], 10*thv[2])
 
-  i = 1
-  while i < len(sys.argv):
-    if sys.argv[i] == "-in":
-      desc = sys.argv[i+1]
-      i += 2
-    elif sys.argv[i] == "-file":
-      filename = sys.argv[i+1]
-      i += 2
-    elif sys.argv[i] == "-bench":
-      bench = True
-      i += 1
-    elif sys.argv[i] == "-small":
-      small = True
-      i += 1
-    elif sys.argv[i] == "-send":
-      send_msg = sys.argv[i+1]
-      i += 2
+    filenames = [ ]
+    desc = None
+    bench = None
+    opt = None
+    send_msg = None
+    
+    i = 1
+    while i < len(sys.argv):
+        if sys.argv[i] == "-in":
+            desc = sys.argv[i+1]
+            i += 2
+        elif sys.argv[i] == "-file":
+            filenames.append(sys.argv[i+1])
+            i += 2
+        elif sys.argv[i] == "-bench":
+            bench = sys.argv[i+1]
+            i += 2
+        elif sys.argv[i] == "-opt":
+            opt = sys.argv[i+1]
+            i += 2
+        elif sys.argv[i] == "-send":
+            send_msg = sys.argv[i+1]
+            i += 2
+        else:
+            usage()
+
+    if send_msg != None:
+        js = JT65Send()
+        js.send(send_msg)
+        sys.exit(0)
+        
+    if bench != None:
+        benchmark(bench, True)
+        sys.exit(0)
+
+    if opt != None:
+        optimize(opt)
+        sys.exit(0)
+  
+    if len(filenames) > 0 and desc == None:
+        r = JT65()
+        r.verbose = True
+        for filename in filenames:
+            r.gowav(filename, 0)
+    elif len(filenames) == 0 and desc != None:
+        r = JT65()
+        r.verbose = True
+        r.opencard(desc)
+        r.gocard()
     else:
-      usage()
-
-  if send_msg != None:
-      js = JT65Send()
-      js.send(send_msg)
-      sys.exit(0)
-  
-  if bench == True:
-    benchmark(True)
-    sys.exit(0)
-
-  if small == True:
-    smallmark()
-    sys.exit(0)
-  
-  if filename != None and desc == None:
-    r = JT65()
-    r.verbose = True
-    r.gowav(filename, 0)
-  elif filename == None and desc != None:
-    r = JT65()
-    r.verbose = True
-    r.opencard(desc)
-    r.gocard()
-  else:
-    usage()
+        usage()
 
 if __name__ == '__main__':
-  if False:
-    pfile = "cprof.out"
-    sys.stderr.write("jt65: cProfile -> %s\n" % (pfile))
-    import cProfile
-    import pstats
-    cProfile.run('main()', pfile)
-    p = pstats.Stats(pfile)
-    p.strip_dirs().sort_stats('time')
-    # p.print_stats(10)
-    p.print_callers()
-  else:
-    main()
+    if False:
+        pfile = "cprof.out"
+        sys.stderr.write("jt65: cProfile -> %s\n" % (pfile))
+        import cProfile
+        import pstats
+        cProfile.run('main()', pfile)
+        p = pstats.Stats(pfile)
+        p.strip_dirs().sort_stats('time')
+        # p.print_stats(10)
+        p.print_callers()
+    else:
+        main()
