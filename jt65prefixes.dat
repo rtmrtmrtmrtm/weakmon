@@ -199,7 +199,6 @@ AH      United States
 AI      United States
 AJ      United States
 AK      United States
-AC6 	West Carolines
 AC6ZM   United States
 AC6VW   United States
 AH0 	Mariana Is
@@ -602,10 +601,6 @@ JW 	Svalbard Is
 JX 	Jan Mayen
 JY 	Jordan
 K 	United States
-KC6 	East Carolines
-KC6 	West Carolines
-KC6/E 	East Caroline
-KC6/W 	West Carolines
 #KG4 	USA OR Guantanamo Bay
 Single letter suffixes KG4x and three letter suffixes KG4xxx can be
 issued anywhere in the USA fourth call district, and used anywhere
@@ -684,8 +679,6 @@ MU 	Guernsey & Dependencies
 MW 	Wales
 MX 	England (Clubs)
 N 	United States
-NC6	Eastern Carolines
-NC6	Western Carolines
 NH0	Mariana Is
 NH1 	Baker Howland
 NH2 	Guam
@@ -783,7 +776,7 @@ PX0S 	Peter Paul
 PX0T 	Trindade
 PV 	Brazil
 PW 	Brazil
-PY 	Brazil  (Also See Awards)
+PY 	Brazil
 PP1.....ESPIRITO SANTO.....ES
 PY1.....RIO DE JANEIRO.....RJ
 PP2.....GOIAS..............GO
@@ -834,6 +827,7 @@ R1 	European Russia
 R1AN 	Antarctica
 R1FJ 	Franz Jo Land
 R1MV 	Malyj Vysotskij
+R2      Russia
 R2F	Kaliningrad
 R2K	Kaliningrad
 R3 	European Russia
@@ -988,6 +982,7 @@ RM8 	Asiatic Russia
 RM9 	Asiatic Russia
 RN0 	Asiatic Russia
 RN1 	European Russia
+RN2 	European Russia
 RN2F	Kaliningrad
 RN2K	Kaliningrad
 RN3 	European Russia
@@ -1441,6 +1436,7 @@ WH9 	Wake Is
 WL 	Alaska
 WP1 	Navassa Is
 WP2 	Virgin Is
+WP2L 	United States
 WP3 	Puerto Rico
 WP4 	Puerto Rico
 WP5 	Desecheo Is
@@ -1553,10 +1549,13 @@ ZM7 	Chatham Is
 ZM8 	Kermadec Is
 ZM9 	Auckland Campbell
 ZP 	Paraguay
+ZR 	So Africa
+ZR8     Marion Is
+ZR7     Antarctica
 ZS 	So Africa
 ZS2 	Marion Is
 ZS2DK 	So Africa
-ZS3 	Namibia
+ZS7 	Antarctica
 ZS8 	Marion Is
 ZS9 	Walvis Bay
 ZU 	So Africa
