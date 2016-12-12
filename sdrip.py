@@ -354,7 +354,7 @@ class SDRIP:
     self.setitem(0x00C5, data)
 
   # wait for and decode a UDP packet of I/Q samples.
-  # returns a buffer with interleaved I and Q.
+  # returns a buffer with interleaved I and Q float64.
   # return an array of complex (real=I, imag=Q).
   def readiq(self):
     if self.iqin != None:
@@ -418,11 +418,11 @@ class SDRIP:
       #samples = s32.astype(numpy.int16)
       samples = numpy.fromstring(zz, dtype=numpy.int32)
 
-    samples = samples.astype(numpy.float64)
+    samples = samples.astype(numpy.float32)
 
     if gap > 0:
       samples = numpy.append(numpy.zeros(len(samples)*gap,
-                                         dtype=numpy.float64),
+                                         dtype=numpy.float32),
                              samples)
 
     if self.iqout != None:
