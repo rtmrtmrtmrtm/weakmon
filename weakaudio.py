@@ -164,7 +164,7 @@ class Stream:
         adc_time = (adc_time - st) + ut
 
         # make it time of last sample in self.cardbuf[]
-        adc_time += (len(pcm) / float(self.rate))
+        adc_time += (len(pcm) / float(self.cardrate))
 
         self.cardlock.acquire()
         self.cardbuf = numpy.concatenate((self.cardbuf, pcm))
