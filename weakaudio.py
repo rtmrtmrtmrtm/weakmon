@@ -19,6 +19,7 @@ import sdrip
 import sdriq
 import eb200
 import sdrplay
+import fmdemod
 
 # desc is [ "6", "0" ] for a sound card -- sixth card, channel 0 (left).
 # desc is [ "sdrip", "192.168.1.2" ] for RFSpace SDR-IP.
@@ -234,6 +235,7 @@ class SDRIP:
     def __init__(self, ip, rate):
         self.rate = rate
         self.sdrrate = 32000
+        self.fm = fmdemod.FMDemod(self.sdrrate)
 
         self.bufbuf = [ ]
         self.cardtime = time.time() # UNIX time just after last sample in bufbuf
@@ -266,7 +268,14 @@ class SDRIP:
 
         buf = numpy.concatenate(bufbuf)
 
-        buf = weakutil.iq2usb(buf) # I/Q -> USB
+        # XXX maybe should be moved to sdrip.py?
+        if self.sdr.mode == "usb":
+            buf = weakutil.iq2usb(buf) # I/Q -> USB
+        elif self.sdr.mode == "fm":
+            [ buf, junk ] = self.fm.demod(buf) # I/Q -> FM
+        else:
+            sys.stderr.write("weakaudio: SDRIP unknown mode %s\n" % (self.sdr.mode))
+            sys.exit(1)
         buf = self.resampler.resample(buf)
         buf = buf.astype(numpy.float32) # save some space.
 

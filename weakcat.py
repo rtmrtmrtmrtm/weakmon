@@ -225,7 +225,10 @@ class SDRIP(object):
         self.sdr.setfreq(fr)
 
     def set_usb_data(self):
-        pass
+        self.sdr.set_mode("usb")
+
+    def set_fm_data(self):
+        self.sdr.set_mode("fm")
 
 class SDRIQ(object):
     def __init__(self, devname):
