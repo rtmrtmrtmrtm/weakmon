@@ -6,6 +6,8 @@
 # needs a sound card connected to a radio
 # tuned to 144.390 in FM.
 #
+# to read from a .wav file, use ./aprsrecv.py -file xxx.wav
+#
 
 import na
 import weakargs
