@@ -106,11 +106,17 @@ class SDRIP:
   
   def __init__(self, ipaddr):
     # ipaddr is SDR-IP's IP address e.g. "192.168.3.123"
+    self.mode = "usb"
     self.ipaddr = ipaddr
     self.mu = thread.allocate_lock()
 
     if ipaddr != None:
       self.connect()
+
+  # "usb" or "fm"
+  # maybe only here to be ready by weakaudio.py/SDRIP.
+  def set_mode(self, mode):
+      self.mode = mode
 
   def connect(self):
     # allocate a UDP socket and port for incoming data from the SDR-IP.
@@ -390,7 +396,7 @@ class SDRIP:
     if seq != self.nextseq and (seq != 1 or self.nextseq != 65536):
       # one or more packets were lost.
       # we'll fill the gap with zeros.
-      # sys.stderr.write("seq oops got=%d wanted=%d\n" % (seq, self.nextseq))
+      sys.stderr.write("seq oops got=%d wanted=%d\n" % (seq, self.nextseq))
       if seq > self.nextseq:
         gap = seq - self.nextseq
     self.nextseq = seq + 1
