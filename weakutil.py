@@ -118,11 +118,18 @@ def freq_shift_hack_iter(x, hza, dt):
     ret +=  freq_shift_hack_iter(x[i1:], [ hz_i1, hza[1] ], dt) 
     return ret
 
-# pure sin tone, n samples lone.
-def tone(rate, hz, n):
+# pure sin tone, n samples long.
+def sintone(rate, hz, n):
     x = numpy.linspace(0, 2 * hz * (n / float(rate)) * numpy.pi, n,
                        dtype=numpy.float32)
     y = numpy.sin(x)
+    return y
+
+# pure cos tone, n samples long.
+def costone(rate, hz, n):
+    x = numpy.linspace(0, 2 * hz * (n / float(rate)) * numpy.pi, n,
+                       dtype=numpy.float32)
+    y = numpy.cos(x)
     return y
 
 # parameter
@@ -486,7 +493,7 @@ def readwav(filename):
         w.close()
         return None
 
-    samples = numpy.array([])
+    bufbuf = [ ]
     while True:
         z = w.readframes(8192)
         if len(z) < 1:
@@ -498,7 +505,9 @@ def readwav(filename):
             zz = numpy.fromstring(z, numpy.int16)
         if channels == 2:
             zz = zz[0::2] # left channel
-        samples = numpy.append(samples, zz)
+        bufbuf.append(zz)
+
+    samples = numpy.concatenate(bufbuf)
 
     w.close()
     return [ rate, samples ]
