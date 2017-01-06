@@ -99,7 +99,8 @@ def broken_msg(msg):
              "TG7HQQ", "475IVR", "L16RAH", "XO2QLH", "5E8HML", "HF7VBA",
              "F11XTN", "7T4EUZ", "EF5KYD", "A80CCM", "HF7VBA",
              "VV3EZD", "DT8ZBT", "8Z9RTD", "7U0NNP", "6P8CGY", "WH9ASY",
-             "V96TCU", "BF3AUF", "7B5JDP", "1HFXR1", "28NTV" ]
+             "V96TCU", "BF3AUF", "7B5JDP", "1HFXR1", "28NTV",
+             "388PNI", "TN2CQQ", "Y99CGR" ]
     for bad in bads:
         if bad in msg:
             return True
@@ -181,14 +182,24 @@ class JT65:
   def gowav(self, filename, chan):
     self.openwav(filename)
     bufbuf = [ ]
+    n = 0
     while True:
-      buf = self.readwav(chan)
-      if buf.size < 1:
-        break
-      bufbuf.append(buf)
-    samples = numpy.concatenate(bufbuf)
-    bufbuf = None
-    self.process(samples, 0)
+        buf = self.readwav(chan)
+        if buf.size < 1:
+            break
+        bufbuf.append(buf)
+        n += len(buf)
+
+        if n >= 60*self.cardrate:
+            samples = numpy.concatenate(bufbuf)
+            self.process(samples[0:60*self.cardrate], 0)
+            bufbuf = [ samples[60*self.cardrate:] ]
+            n = len(bufbuf[0])
+
+    if n >= 49*self.cardrate:
+        samples = numpy.concatenate(bufbuf)
+        bufbuf = None
+        self.process(samples, 0)
 
   def opencard(self, desc):
       # self.cardrate = 11025 # XXX
