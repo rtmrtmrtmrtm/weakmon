@@ -17,7 +17,7 @@ def cb(fate, msg, start, space_to_mark):
     # fate=0 -- unlikely to be correct.
     # fate=1 -- CRC failed but syntax look OK.
     # fate=2 -- CRC is correct.
-    if fate >= 1:
+    if fate >= 2:
         print "%s" % (msg)
 
 def main():
