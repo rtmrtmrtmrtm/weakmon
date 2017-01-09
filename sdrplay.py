@@ -49,6 +49,7 @@ class SDRplay:
         names = [
             "/usr/local/lib/libmirsdrapi-rsp.so.1.95",
             "libmirsdrapi-rsp.so.1.95",
+            "libmirsdrapi-rsp.so",
             "./libmirsdrapi-rsp.so.1.95",
             ]
         self.lib = None
