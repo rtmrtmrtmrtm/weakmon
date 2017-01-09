@@ -9,7 +9,7 @@
 # to read from a .wav file, use ./aprsrecv.py -file xxx.wav
 #
 
-import na
+import aprsrecv
 import weakargs
 import weakaudio
 import weakcat
@@ -35,7 +35,7 @@ def main():
     if args.card == None:
         parser.error("aprsmon requires -card")
 
-    ar = na.APRSRecv(11025)
+    ar = aprsrecv.APRSRecv(11025)
     ar.callback = cb
     ar.opencard(args.card)
     ar.gocard()
