@@ -171,7 +171,7 @@ def fft_of_shift(a, hz, rate):
     if fos_n == len(a) and abs(fos_hz - hz) < fos_threshold:
         lofft = fos_fft
     else:
-        lo = tone(rate, hz, len(a))
+        lo = sintone(rate, hz, len(a))
         lofft = rfft(lo)
         fos_hz = hz
         fos_fft = lofft
