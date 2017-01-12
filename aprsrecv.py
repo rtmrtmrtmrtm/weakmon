@@ -52,6 +52,15 @@ def crc16(bytes):
     crc = crciter(crc, b)
   return crc
 
+# https://witestlab.poly.edu/blog/capture-and-decode-fm-radio/
+def deemphasize(samples, rate):
+  d = rate * 750e-6   # Calculate the # of samples to hit the -3dB point  
+  x = numpy.exp(-1/d)   # Calculate the decay between each sample  
+  b = [1-x]          # Create the filter coefficients  
+  a = [1,-x]  
+  out = scipy.signal.lfilter(b,a,samples) 
+  return out
+
 class APRSRecv:
 
   def __init__(self, rate):
@@ -101,7 +110,7 @@ class APRSRecv:
   # slicing level is a running midway between local min and max.
   # don't use average since mark and space aren't equally popular.
   # already filtered/smoothed so no point in using percentiles.
-  def slice(self, smoothed):
+  def sliceone(self, smoothed):
       global slicewindow
 
       bitsamples = int(self.rate / float(self.baud))
@@ -155,6 +164,27 @@ class APRSRecv:
         sliced = numpy.subtract(smoothed, midv)
         return sliced
 
+  # correlate against a tone (1200 or 2200 Hz).
+  # idea from Sivan Toledo's QEX article.
+  # (used to use butterworth bandpass filters of order 3
+  #  and width 1100 hz, but the following is slightly better).
+  def corr(self, samples, tone):
+      global smoothwindow
+      win = int(smoothwindow * self.rate / self.baud)
+      xsin = weakutil.sintone(self.rate, tone, len(samples))
+      xcos = weakutil.costone(self.rate, tone, len(samples))
+      c = numpy.sqrt(numpy.add(numpy.square(smooth(xsin * samples, win)),
+                               numpy.square(smooth(xcos * samples, win))))
+      return c
+
+  # correlate, slice, generate +/- for each sample.
+  def slice(self, samples):
+    markcorr = self.corr(samples, self.mark)
+    spacecorr = self.corr(samples, self.space)
+    m1 = self.sliceone(markcorr)
+    s1 = self.sliceone(spacecorr)
+    return numpy.subtract(m1, s1)
+
   def process(self, eof):
     global tonegain, advance
 
@@ -165,35 +195,17 @@ class APRSRecv:
     if self.raw.size < maxpacket and eof == False:
       return
 
-    raw = self.raw
+    # set up to try multiple emphasis setups.
+    sliced = [ ]
 
-    # correlate with 1200 and 2200 tones.
-    # idea from Sivan Toledo's QEX article.
-    # (used to use butterworth bandpass filters of order 3
-    #  and width 1100 hz, but the following is slightly better).
-    win = int(smoothwindow * self.rate / self.baud)
-    sinmark = weakutil.sintone(self.rate, self.mark, len(raw))
-    cosmark = weakutil.costone(self.rate, self.mark, len(raw))
-    markcorr = numpy.sqrt(numpy.add(numpy.square(smooth(sinmark * raw, win)),
-                                    numpy.square(smooth(cosmark * raw, win))))
+    # no change in emphasis; best when receiver doesn't de-emph,
+    # but not right for senders that pre-emph.
+    sliced.append( self.slice(self.raw) )
 
-    sinspace = weakutil.sintone(self.rate, self.space, len(raw))
-    cosspace = weakutil.costone(self.rate, self.space, len(raw))
-    spacecorr = numpy.sqrt(numpy.add(numpy.square(smooth(sinspace * raw, win)),
-                                     numpy.square(smooth(cosspace * raw, win))))
-
-    # slice each tone; result is <0 or >1 for each sample.
-    m1 = self.slice(markcorr)
-    s1 = self.slice(spacecorr)
-
-    # combine with various relative gains
-    sliced = [ 
-      numpy.subtract(m1, s1),
-      # #numpy.where(numpy.greater(m1, s1), 1, -1),
-      # #numpy.subtract(m1*tonegain, s1),
-      # numpy.subtract(m1/tonegain, s1), # helps track 02
-      #numpy.subtract(m1*1.4, s1), # special hack to test ar5000a.wav / KB1LNA
-      ]
+    # de-emphasize, for a receiver that doesn't de-emph,
+    # but senders that do.
+    # doesn't seem to help for track 01...
+    #sliced.append( self.slice(deemphasize(self.raw, self.rate)) )
 
     while self.raw.size >= maxpacket or (eof and self.raw.size > 20*bitsamples):
       # sliced[0] is a candidate for start of packet,
@@ -216,16 +228,19 @@ class APRSRecv:
         # compute space-to-mark tone strength ratio, to help understand emphasis.
         # space is 2200 hz, mark is 1200 hz.
         start = beststart - self.off
-        indices = numpy.arange(0, bestnsymbols*bitsamples, bitsamples)
-        indices = indices + (start + 0.5*bitsamples)
-        indices = numpy.rint(indices).astype(int)
-        rawsymbols = sliced[0][indices]
-        rawmark = markcorr[indices]
-        rawspace = spacecorr[indices]
-        meanmark = numpy.mean(numpy.where(rawsymbols > 0, rawmark, 0))
-        meanspace = numpy.mean(numpy.where(rawsymbols <= 0, rawspace, 0))
 
-        self.callback(bestok, bestmsg, beststart, meanspace/meanmark)
+        #indices = numpy.arange(0, bestnsymbols*bitsamples, bitsamples)
+        #indices = indices + (start + 0.5*bitsamples)
+        #indices = numpy.rint(indices).astype(int)
+        #rawsymbols = sliced[0][indices]
+        #rawmark = markcorr[indices]
+        #rawspace = spacecorr[indices]
+        #meanmark = numpy.mean(numpy.where(rawsymbols > 0, rawmark, 0))
+        #meanspace = numpy.mean(numpy.where(rawsymbols <= 0, rawspace, 0))
+        #ratio = meanspace / meanmark
+        ratio = 1.0
+
+        self.callback(bestok, bestmsg, beststart, ratio)
         sys.stdout.flush()
 
       if bestok == 2:
@@ -235,8 +250,8 @@ class APRSRecv:
 
       self.off += trim
       self.raw = self.raw[trim:]
-      markcorr = markcorr[trim:] # just for debug
-      spacecorr = spacecorr[trim:] # just for debug
+      #markcorr = markcorr[trim:] # just for debug
+      #spacecorr = spacecorr[trim:] # just for debug
       for i in range(0, len(sliced)):
         sliced[i] = sliced[i][trim:]
 
@@ -547,8 +562,9 @@ class APRSRecv:
       if len(buf) > 0:
         self.gotsamples(buf)
         self.process(False)
-      else:
-        time.sleep(0.2)
+      # sleep so that samples accumulate, which makes
+      # resample() higher quality.
+      time.sleep(0.2)
 
 wins = 0
 
