@@ -265,19 +265,31 @@ def iq2usb(iq):
     assert len(iq) == len(ssb)
     return ssb
 
+resample_interp = False # use numpy.interp()? vs scipy.signal.resample()
+
 # change sampling rate from from_rate to to_rate.
 # buf must already be low-pass filtered if to_rate < from_rate.
 # note that result probably has slightly different
 # length in seconds, so caller may want to adjust.
 def resample(buf, from_rate, to_rate):
-    if to_rate == from_rate/2:
+    # how many samples do we want?
+    target = int(round((len(buf) / float(from_rate)) * to_rate))
+
+    if from_rate == to_rate * 2:
         buf = buf[0::2]
-    # elif False:
-    elif from_rate == 12000 and to_rate == 5512:
+        return buf
+
+    if from_rate == to_rate:
+        return buf
+
+    if resample_interp == False:
         # seems to produce better results than numpy.interp() but
         # is slower, sometimes much slower.
+        # pad to power of two length
+        nn = 2**nextpow2(len(buf))
+        buf = numpy.append(buf, numpy.zeros(nn - len(buf)))
         want = (len(buf) / float(from_rate)) * to_rate
-        want = int(want)
+        want = int(round(want))
         buf = scipy.signal.resample(buf, want)
     else:
         secs =  len(buf)*(1.0/from_rate)
@@ -285,15 +297,16 @@ def resample(buf, from_rate, to_rate):
         ox = ox[0:len(buf)]
         nx = numpy.arange(0, secs, 1.0 / to_rate)
         buf = numpy.interp(nx, ox, buf)
+
+    if len(buf) > target:
+        buf = buf[0:target]
+
     return buf
 
 # gadget to low-pass-filter and re-sample a multi-block
 # stream without losing fractional samples at block
 # boundaries, which would hurt phase-shift demodulators
 # like WWVB.
-# it only works correctly if each buffer is an integer
-# number of samples for both rates, e.g. for exactly
-# second of samples.
 class Resampler:
     def __init__(self, from_rate, to_rate):
         self.from_rate = from_rate
@@ -308,26 +321,35 @@ class Resampler:
                                            self.filter[1],
                                            [0])
 
-        # accumulate the number of samples that have been dropped
-        # due to re-sampling.
-        self.lost_sum = 0
+        # total number of input and output samples,
+        # so we can insert/delete to keep long-term
+        # rates correct.
+        self.nin = 0
+        self.nout = 0
 
     def resample(self, buf):
-        oldlen = len(buf)
+        inlen = len(buf)
+        savelast = buf[-20:]
 
-        # attempt to correct for samples gained/lost so far.
-        sample_time = 1.0 / self.from_rate
-        ns = int(self.lost_sum / sample_time)
-        if ns > 0:
+        insec = self.nin / float(self.from_rate)
+        outsec = self.nout / float(self.to_rate)
+        if insec - outsec > 0.5 / self.from_rate:
+            ns = (insec - outsec) / (1.0 / self.from_rate)
+            ns = int(round(ns))
+            if ns < 1:
+                ns = 1
+            assert len(self.last) >= ns
             #print "add %d" % (ns)
-            buf = numpy.append(numpy.repeat((self.last+buf[0])/2.0, ns), buf)
-            self.lost_sum -= ns * sample_time
-        elif ns < 0:
-            #print "del %d " % (-ns)
-            buf = buf[-ns:]
-            self.lost_sum -= ns * sample_time
+            buf = numpy.append(self.last[-ns:], buf)
+        if outsec - insec > 0.5 / self.from_rate:
+            ns = (outsec - insec) / (1.0 / self.from_rate)
+            ns = int(round(ns))
+            if ns < 1:
+                ns = 1
+            #print "del %d" % (ns)
+            buf = buf[ns:]
         
-        self.last = buf[-1]
+        self.last = savelast
 
         if self.from_rate > self.to_rate:
             # low-pass filter.
@@ -338,21 +360,10 @@ class Resampler:
             buf = zi[0]
             self.zi = zi[1]
 
-        if self.from_rate != self.to_rate:
-            oldsec = oldlen / float(self.from_rate)
-
-            # change sample rate.
-            buf = resample(buf, self.from_rate, self.to_rate)
+        buf = resample(buf, self.from_rate, self.to_rate)
             
-            while len(buf) > oldsec*self.to_rate:
-                buf = buf[0:-1]
-
-            # buf is probably too short by a fraction of a sample;
-            # keep track of how many seconds of samples we've lost so we don't
-            # screw up the phase.
-            newsec = len(buf) / float(self.to_rate)
-            lost = oldsec - newsec
-            self.lost_sum += lost
+        self.nin += inlen
+        self.nout += len(buf)
 
         return buf
 
