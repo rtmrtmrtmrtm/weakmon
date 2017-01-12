@@ -52,6 +52,28 @@ def x40(hz):
     hz >>= 8
   return s
 
+def y16(s):
+    x = (ord(s[0]) + 
+         (ord(s[1]) << 8))
+    return x
+
+def y32(s):
+    x = (ord(s[0]) + 
+         (ord(s[1]) << 8) +
+         (ord(s[2]) << 16) +
+         (ord(s[3]) << 24))
+    return x
+
+# turn 5 bytes from NetSDR into a 40-bit number.
+# LSB first.
+def y40(s):
+    hz = (ord(s[0]) + 
+          (ord(s[1]) << 8) +
+          (ord(s[2]) << 16) +
+          (ord(s[3]) << 24) +
+          (ord(s[4]) << 32))
+    return hz
+
 # turn a string into hex digits
 def hx(s):
   buf = ""
@@ -76,33 +98,6 @@ def open(ipaddr):
     return sdr
 
 class SDRIP:
-  # SDR-IP's IP address
-  ipaddr = None
-  
-  # data UDP socket
-  ds = None
-
-  # control TCP socket
-  cs = None
-
-  # sample rate
-  rate = None
-
-  # frequency in Hz
-  frequency = None
-
-  # 16 or 24
-  # only 24 seems useful
-  samplebits = 24
-
-  # iq? i think only True works.
-  iq = True
-
-  # optionally record/playback iq in a file
-  iqout = None
-  iqin = None
-
-  nextseq = 0
   
   def __init__(self, ipaddr):
     # ipaddr is SDR-IP's IP address e.g. "192.168.3.123"
@@ -110,8 +105,21 @@ class SDRIP:
     self.ipaddr = ipaddr
     self.mu = thread.allocate_lock()
 
-    if ipaddr != None:
-      self.connect()
+    self.rate = None
+    self.frequency = None
+    self.running = False
+
+    # 16 or 24
+    # only 24 seems useful
+    self.samplebits = 24
+
+    # iq? i think only True works.
+    self.iq = True
+
+    self.nextseq = 0
+    self.reader_pid = None
+
+    self.connect()
 
   # "usb" or "fm"
   # maybe only here to be ready by weakaudio.py/SDRIP.
@@ -129,8 +137,8 @@ class SDRIP:
     # since the Python thread scheduler doesn't run us often enough if
     # WSPR is compute-bound in numpy for tens of seconds.
     r, w = os.pipe()
-    pid = os.fork()
-    if pid == 0:
+    self.reader_pid = os.fork()
+    if self.reader_pid == 0:
         os.close(r)
         self.reader(w)
         os._exit(0)
@@ -148,8 +156,19 @@ class SDRIP:
     # boilerplate
     self.setad()
     self.setfilter()
-    #self.setgain(0)
-    self.setgain(-20)
+    self.setgain(0)
+    #self.setgain(-20)
+
+    # keep reading the control TCP socket, to drain any
+    # errors, so NetSDR doesn't get upset.
+    th = threading.Thread(target=lambda : self.drain_ctl())
+    th.daemon = True
+    th.start()
+
+    #print "name: %s" % (self.getitem(0x0001))
+    #oo = self.getitem(0x000A) # Options
+    #oo0 = ord(oo[0])
+    #print "%02x" % (oo0)
 
   def reader1(self):
     while True:
@@ -191,7 +210,20 @@ class SDRIP:
                   ww.write(pkt)
                   ww.flush()
               except:
+                  sys.stderr.write("sdrip: pipe write failed\n")
                   os._exit(1)
+
+  # consume unsolicited messages from the NetSDR,
+  # and notice if it goes away.
+  def drain_ctl(self):
+      try:
+          while True:
+              self.getitem(0x0001) # name
+              time.sleep(1)
+      except:
+          pass
+      sys.stderr.write("sdrip: control connection died\n")
+      os.kill(self.reader_pid, 9)
 
   # read a 16-bit int from TCP control socket
   def read16(self):
@@ -205,6 +237,10 @@ class SDRIP:
     len = self.read16() # overall length and msg type
     mtype = (len >> 13) & 0x7
     len &= 0x1fff
+    if len == 2:
+        # NAK -- but for what?
+        sys.stderr.write("sdrip: NAK\n")
+        return None
     item = self.read16() # control item
     data = ""
     xlen = len - 4
@@ -219,28 +255,38 @@ class SDRIP:
   def readreply(self, mtype, item):
     while True:
       reply = self.readctl()
+      if reply == None:
+          # NAK
+          return None
       if reply[0] == 0 and reply[1] == item:
         return reply[2]
+      sys.stderr.write("sdrip: unexpected mtype=%02x item=%04x datalen=%d\n" % (reply[0], reply[1], len(reply[2])))
       if reply[0] == 1 and reply[1] == 5:
         # A/D overload
+        sys.stderr.write("sdrip: unsolicited A/D overload\n")
         continue
       if reply[0] != 0:
-        sys.stderr.write("readreply oops1 %d %d\n" % (mtype, reply[0]))
+        sys.stderr.write("sdrip: readreply oops1 %d %d\n" % (mtype, reply[0]))
       if reply[1] != item:
-        sys.stderr.write("readreply oops2 wanted=%04x got=%04x\n" % (item,
+        sys.stderr.write("sdrip: readreply oops2 wanted=%04x got=%04x\n" % (item,
                                                                    reply[1]))
       # print "reply: %04x %s" % (reply[1], hx(reply[2]))
     sys.exit(1)
 
   # send a Request Control Item, wait for and return the result
-  def getitem(self, item):
+  def getitem(self, item, extra=None):
+    self.mu.acquire()
     mtype = 1 # type=request control item
     buf = ""
     buf += x8(4) # overall length, lsb
     buf += x8((mtype << 5) | 0) # 0 is len msb
     buf += x16(item)
+    if extra != None:
+        buf += extra
     self.cs.send(buf)
-    return self.readreply(mtype, item)
+    ret = self.readreply(mtype, item)
+    self.mu.release()
+    return ret
 
   def setitem(self, item, data):
     self.mu.acquire()
@@ -256,23 +302,52 @@ class SDRIP:
     self.mu.release()
     return ret
 
+  def print_setup(self):
+      print "freq 0: %d" % (self.getfreq(0)) # 32770 if down-converting
+      print "name: %s" % (self.getname())
+      print "serial: %s" % (self.getserial())
+      print "interface: %d" % (self.getinterface())
+      # print "boot version: %s" % (self.getversion(0))
+      # print "application firmware version: %s" % (self.getversion(1))
+      # print "hardware version: %s" % (self.getversion(2))
+      # print "FPGA config: %s" % (self.getversion(3))
+      print "rate: %d" % (self.getrate())
+      print "freq 0: %d" % (self.getfreq(0)) # 32770 if down-converting
+      print "A/D mode: %s" % (self.getad(0))
+      print "filter: %d" % (self.getfilter(0))
+      print "gain: %d" % (self.getgain(0))
+      print "fpga: %s" % (self.getfpga())
+      print "scale: %s" % (self.getscale(0))
+      # print "downgain: %s" % (self.getdowngain())
+
   # set Frequency
-  def setfreq1(self, display, hz):
+  def setfreq1(self, chan, hz):
     hz = int(hz)
     data = ""
-    data += chr(display) # 1=display, 0=actual receiver DDC
+    data += chr(chan) # 1=display, 0=actual receiver DDC
     data += x40(hz)
     self.setitem(0x0020, data)
 
   def setfreq(self, hz):
-    if self.ipaddr != None:
-      self.setfreq1(0, hz) # DDC
-      self.setfreq1(1, hz) # display
+    self.setfreq1(0, hz) # DDC
+    self.setfreq1(1, hz) # display
+
+    # a sleep seems to be needed for the case in which
+    # a NetSDR is switching on the down-converter.
+    if hz > 30000000 and (self.frequency == None or self.frequency < 30000000):
+      time.sleep(0.5)
+
     self.frequency = hz
+
+  def getfreq(self, chan):
+      x = self.getitem(0x0020, x8(chan))
+      hz = y40(x[1:6])
+      return hz
 
   # set Receiver State to Run
   # only I/Q seems to work, not real.
   def setrun(self):
+    self.running = True
     data = ""
     if self.iq:
       data += x8(0x80) # 0x80=I/Q, 0x00=real
@@ -286,9 +361,11 @@ class SDRIP:
     data += x8(0x00) # unused
     self.setitem(0x0018, data)
     self.nextseq = 0
+    # self.print_setup()
 
   # stop receiver
   def stop(self):
+    self.running = False
     data = ""
     if self.iq:
       data += x8(0x80) # 0x80=I/Q, 0x00=real
@@ -308,11 +385,15 @@ class SDRIP:
   # the minimum is 32000.
   def setrate(self, rate):
     self.rate = rate
-    if self.ipaddr != None:
-      data = ""
-      data += x8(0) # ignored
-      data += x32(rate)
-      self.setitem(0x00B8, data)
+    data = ""
+    data += x8(0) # ignored
+    data += x32(rate)
+    self.setitem(0x00B8, data)
+
+  def getrate(self):
+      x = self.getitem(0x00B8, x8(0))
+      rate = y32(x[1:5])
+      return rate
 
   # A/D Modes
   # set dither and A/D gain
@@ -324,6 +405,13 @@ class SDRIP:
     data += x8(0x1)
     self.setitem(0x008A, data)
 
+  # [ dither, A/D gain ]
+  def getad(self, chan):
+      x = self.getitem(0x008A, x8(0))
+      dither = (ord(x[1]) & 1) != 0
+      gain = (ord(x[1]) & 2) != 0
+      return [ dither, gain ]
+
   # RF Filter Select
   # always sets automatic
   # 0=automatic
@@ -334,15 +422,77 @@ class SDRIP:
     data += x8(0) # automatic
     self.setitem(0x0044, data)
 
+  def getfilter(self, chan):
+      x = self.getitem(0x0044, x8(chan))
+      return ord(x[1])
+
   # RF Gain
   # gain is 0, -10, -20 -30 dB
   def setgain(self, gain):
-    if self.ipaddr != None:
-      data = ""
-      data += x8(0) # ignored
-      data += x8(gain)
-      self.setitem(0x0038, data)
+    data = ""
+    data += x8(0) # channel 1
+    data += x8(gain)
+    self.setitem(0x0038, data)
 
+  def getgain(self, chan):
+    x = self.getitem(0x0038, x8(chan))
+    return ord(x[1])
+
+  # e.g. "NetSDR"
+  def getname(self):
+      x = self.getitem(0x0001)
+      return x
+
+  # e.g. "PS000553"
+  def getserial(self):
+      x = self.getitem(0x0002)
+      return x
+
+  # 123 means version 1.23
+  # returns 10 for my NetSDR
+  def getinterface(self):
+      x = self.getitem(0x0003)
+      return y16(x[0:2])
+  
+  # ID=0 boot code
+  # ID=1 application firmware
+  # ID=2 hardware
+  # ID=3 FPGA configuration
+  # XXX seems to cause protocol problems, NetSDR sends NAKs or something.
+  def getversion(self, id):
+      x = self.getitem(0x0004, x8(id))
+      if x == None:
+          # NAK
+          return None
+      if id == 3:
+          return [ ord(x[1]), ord(x[2]) ] # ID, version
+      else:
+          return y16(x[1:3]) # version * 100
+
+  # [ FPGA config number, FPGA config ID, FPGA revision, descr string ]
+  # e.g. [1, 1, 7, 'Std FPGA Config \x00']
+  def getfpga(self):
+    x = self.getitem(0x000C)
+    return [ ord(x[0]),
+             ord(x[1]),
+             ord(x[2]),
+             x[3:] ]
+
+  # Receiver A/D Amplitude Scale
+  def getscale(self, chan):
+    x = self.getitem(0x0023, x8(chan))
+    return y16(x[1:3])
+
+  # VHF/UHF Down Converter Gain
+  # XXX seems to yield a NAK
+  def getdowngain(self):
+    x = self.getitem(0x003A)
+    auto = ord(x[0])
+    lna = ord(x[1])
+    mixer = ord(x[2])
+    ifout = ord(x[3])
+    return [ auto, lna, mixer, ifout ]
+                                            
   # Data Output UDP IP and Port Address
   # just set the port, not the host address.
   def setudp(self, port):
@@ -363,15 +513,7 @@ class SDRIP:
   # returns a buffer with interleaved I and Q float64.
   # return an array of complex (real=I, imag=Q).
   def readiq(self):
-    if self.iqin != None:
-      samples = numpy.fromfile(self.iqin, dtype=numpy.float64, count=512)
-      ii1 = samples[0::2]
-      qq1 = samples[1::2]
-      cc1 = ii1 + 1j*qq1
-      return cc1
-
     # read from the pipe; a 4-byte length, then the packet.
-    #buf = self.ds.recv(4096)
     x4 = os.read(self.pipe, 4)
     if len(x4) != 4:
         sys.stderr.write("sdrip read from child failed\n")
@@ -427,12 +569,8 @@ class SDRIP:
     samples = samples.astype(numpy.float32)
 
     if gap > 0:
-      samples = numpy.append(numpy.zeros(len(samples)*gap,
-                                         dtype=numpy.float32),
-                             samples)
-
-    if self.iqout != None:
-      samples.tofile(self.iqout)
+      pad = numpy.zeros(len(samples)*gap, dtype=numpy.float32),
+      samples = numpy.append(pad, samples)
 
     ii1 = samples[0::2]
     qq1 = samples[1::2]
