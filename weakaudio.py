@@ -237,36 +237,53 @@ class SDRIP:
         self.sdrrate = 32000
         self.fm = fmdemod.FMDemod(self.sdrrate)
 
-        self.bufbuf = [ ]
-        self.cardtime = time.time() # UNIX time just after last sample in bufbuf
-        self.cardlock = thread.allocate_lock()
-
         self.resampler = weakutil.Resampler(self.sdrrate, self.rate)
 
         self.sdr = sdrip.open(ip)
         self.sdr.setrate(self.sdrrate)
-        self.sdr.setrun()
-        self.sdr.setgain(-10)
+        #self.sdr.setgain(-10)
 
+        # now weakcat.SDRIP.read() calls setrun().
+        #self.sdr.setrun()
+
+        self.cardtime = time.time() # UNIX time just after last sample in bufbuf
+
+        self.bufbuf = [ ]
+        self.cardlock = thread.allocate_lock()
         self.th = threading.Thread(target=lambda : self.sdr_thread())
         self.th.daemon = True
         self.th.start()
 
-        self.junk = 0
-
     # returns [ buf, tm ]
     # where tm is UNIX seconds of the last sample.
     def read(self):
+        # delay setrun() until the last moment, so that
+        # all other parameters have likely been set.
+        if self.sdr.running == False:
+            self.sdr.setrun()
+
         self.cardlock.acquire()
         bufbuf = self.bufbuf
         buf_time = self.cardtime
         self.bufbuf = [ ]
         self.cardlock.release()
 
+        #buf = self.sdr.readiq()
+        #self.cardtime += len(buf) / float(self.sdrrate)
+        #buf_time = self.cardtime
+
         if len(bufbuf) == 0:
             return [ numpy.array([]), buf_time ]
 
         buf = numpy.concatenate(bufbuf)
+
+        # we're expecting around 2000.
+        # if 26, there's a problem.
+        x = numpy.mean(abs(buf))
+        if x < 29:
+            # XXX
+            print "low mean %d %.1f" % (len(buf), numpy.mean(abs(buf)))
+            #sys.exit(1)
 
         # XXX maybe should be moved to sdrip.py?
         if self.sdr.mode == "usb":
@@ -276,13 +293,13 @@ class SDRIP:
         else:
             sys.stderr.write("weakaudio: SDRIP unknown mode %s\n" % (self.sdr.mode))
             sys.exit(1)
+
         buf = self.resampler.resample(buf)
         buf = buf.astype(numpy.float32) # save some space.
 
         return [ buf, buf_time ]
 
     def sdr_thread(self):
-        self.cardtime = time.time()
 
         while True:
             # read i/q blocks, to reduce CPU time in
