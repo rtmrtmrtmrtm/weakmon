@@ -328,6 +328,9 @@ class AR5000(object):
         self.cmd("BW1") # 3 khz
         self.cmd("AC0") # fast AGC
 
+#
+# The PRC-138 knob must be set to RMT.
+#
 class PRC138(object):
     def __init__(self, devname):
         self.port = serial.Serial(devname,
@@ -436,7 +439,8 @@ class PRC138(object):
         self.prompt()
 
     # set both rx and tx, in hz.
-    # prc-138 demands exactly 8 digits.
+    # prc-138 demands exactly 8 digits,
+    # with leading zeroes if needed.
     def setf(self, vfo, fr):
         assert vfo == 0
         cmd = "FR %08d" % (int(fr))
@@ -469,6 +473,9 @@ class EB200(object):
 
     def set_usb_data(self):
         self.eb200.set_usb_data()
+
+    def set_fm_data(self):
+        self.eb200.set_fm_data()
 
 class SDRplay(object):
     def __init__(self, devname):
