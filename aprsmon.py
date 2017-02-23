@@ -29,13 +29,13 @@ def main():
     if args.cat != None:
         cat = weakcat.open(args.cat)
         cat.set_fm_data()
-        cat.sdr.setgain(0)
+        # cat.sdr.setgain(0)
         cat.setf(0, 144390000)
 
     if args.card == None:
         parser.error("aprsmon requires -card")
 
-    ar = aprsrecv.APRSRecv(11025)
+    ar = aprsrecv.APRSRecv()
     ar.callback = cb
     ar.opencard(args.card)
     ar.gocard()

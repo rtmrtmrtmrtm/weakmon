@@ -260,10 +260,10 @@ class SDRIP:
           return None
       if reply[0] == 0 and reply[1] == item:
         return reply[2]
-      sys.stderr.write("sdrip: unexpected mtype=%02x item=%04x datalen=%d\n" % (reply[0], reply[1], len(reply[2])))
+      # sys.stderr.write("sdrip: unexpected mtype=%02x item=%04x datalen=%d\n" % (reply[0], reply[1], len(reply[2])))
       if reply[0] == 1 and reply[1] == 5:
         # A/D overload
-        sys.stderr.write("sdrip: unsolicited A/D overload\n")
+        # sys.stderr.write("sdrip: unsolicited A/D overload\n")
         continue
       if reply[0] != 0:
         sys.stderr.write("sdrip: readreply oops1 %d %d\n" % (mtype, reply[0]))

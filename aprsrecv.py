@@ -63,8 +63,8 @@ def deemphasize(samples, rate):
 
 class APRSRecv:
 
-  def __init__(self, rate):
-    self.rate = rate
+  def __init__(self):
+    self.rate = None
 
     # Bell-202
     self.baud = 1200 # bits per second
@@ -554,7 +554,8 @@ class APRSRecv:
     self.process(True)
 
   def opencard(self, desc):
-      self.audio = weakaudio.new(desc, self.rate)
+      self.audio = weakaudio.new(desc, None)
+      self.rate = self.audio.rate
 
   def gocard(self):
     while True:
@@ -576,7 +577,7 @@ def benchmark(wavname, verbose):
     global wins
     if fate == 2:
       wins = wins + 1
-  ar = APRSRecv(0)
+  ar = APRSRecv()
   ar.callback = cb
   ar.gofile(wavname)
   if verbose:
@@ -598,7 +599,7 @@ def optimize(wavname):
     sys.stdout.flush()
 
     # warm up any caches, JIT, &c.
-    ar = APRSRecv(0)
+    ar = APRSRecv()
     ar.callback = None
     ar.gofile(wavname)
 
@@ -637,7 +638,7 @@ def main():
     while i < len(sys.argv):
         a = sys.argv[i]
         if a == "-sound":
-            ar = APRSRecv(11024)
+            ar = APRSRecv()
             ar.callback = cb
             ar.gocard()
         elif a == "-bench":
@@ -647,7 +648,7 @@ def main():
             optimize(sys.argv[i+1])
             i += 1
         else:
-            ar = APRSRecv(0)
+            ar = APRSRecv()
             ar.callback = cb
             ar.gofile(sys.argv[i])
         i += 1

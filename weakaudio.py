@@ -106,6 +106,10 @@ class Stream:
         self.use_oss = ("freebsd" in sys.platform)
         self.card = card
         self.chan = chan
+
+        if rate == None:
+            rate = pya_output_rate(card, 8000)
+
         self.rate = rate # the sample rate the app wants.
         self.cardrate = rate # the rate at which the card is running.
 
@@ -233,6 +237,9 @@ class Stream:
 
 class SDRIP:
     def __init__(self, ip, rate):
+        if rate == None:
+            rate = 11025
+
         self.rate = rate
         self.sdrrate = 32000
         self.fm = fmdemod.FMDemod(self.sdrrate)
@@ -277,14 +284,6 @@ class SDRIP:
 
         buf = numpy.concatenate(bufbuf)
 
-        # we're expecting around 2000.
-        # if 26, there's a problem.
-        x = numpy.mean(abs(buf))
-        if x < 29:
-            # XXX
-            print "low mean %d %.1f" % (len(buf), numpy.mean(abs(buf)))
-            #sys.exit(1)
-
         # XXX maybe should be moved to sdrip.py?
         if self.sdr.mode == "usb":
             buf = weakutil.iq2usb(buf) # I/Q -> USB
@@ -321,6 +320,9 @@ class SDRIP:
 
 class SDRIQ:
     def __init__(self, ip, rate):
+        if rate == None:
+            rate = 11025
+
         self.rate = rate
         self.sdrrate = 8138
 
@@ -388,6 +390,9 @@ class SDRIQ:
 
 class EB200:
     def __init__(self, ip, rate):
+        if rate == None:
+            rate = 8000
+
         self.rate = rate
 
         self.time_mu = thread.allocate_lock()
@@ -423,6 +428,9 @@ class EB200:
 
 class SDRplay:
     def __init__(self, dev, rate):
+        if rate == None:
+            rate = 11025
+
         self.rate = rate
 
         self.sdr = sdrplay.open(dev)
