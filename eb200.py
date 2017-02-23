@@ -134,7 +134,7 @@ class EB200:
                 buf = numpy.concatenate(bufs)
                 return buf
 
-            time.sleep(0.1)
+            time.sleep(0.2)
 
     def getrate(self):
         return self.rate
@@ -149,3 +149,11 @@ class EB200:
         # set BW first, since otherwise can't change to USB.
         self.tcp.send("band 2400\n")
         self.tcp.send("demodulation usb\n")
+
+    def set_fm_data(self):
+        self.tcp.send(":freq:afc 0\n")
+        self.tcp.send(":output:squelch 0\n")
+        self.tcp.send(":input:att:auto 1\n")
+        self.tcp.send("band 15000\n")
+        self.tcp.send("demodulation fm\n")
+        self.tcp.send("band 15000\n")
