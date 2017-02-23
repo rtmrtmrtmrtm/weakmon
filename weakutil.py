@@ -279,6 +279,16 @@ def resample(buf, from_rate, to_rate):
         buf = buf[0::2]
         return buf
 
+    # 11025 -> 441, for wwvmon.py.
+    if from_rate == to_rate * 25:
+        buf = buf[0::25]
+        return buf
+
+    # 11025 -> 315, for wwvmon.py.
+    if from_rate == to_rate * 35:
+        buf = buf[0::35]
+        return buf
+
     if from_rate == to_rate:
         return buf
 
@@ -327,7 +337,30 @@ class Resampler:
         self.nin = 0
         self.nout = 0
 
+        print "Resampler(%d, %d)" % (from_rate, to_rate)
+
     def resample(self, buf):
+        # if resample() uses FFT, then handing it huge chunks is
+        # slow. so cut big buffers into one-second chunks.
+        a = [ ]
+        i = 0
+        if self.from_rate > 20000:
+            big = self.from_rate / 2
+        else:
+            big = self.from_rate
+        while i < len(buf):
+            left = len(buf) - i
+            chunk = None
+            if left > 1.5*big:
+                chunk = big
+            else:
+                chunk = left
+            a.append(self.resample1(buf[i:i+chunk]))
+            i += chunk
+        b = numpy.concatenate(a)
+        return b
+
+    def resample1(self, buf):
         inlen = len(buf)
         savelast = buf[-20:]
 
