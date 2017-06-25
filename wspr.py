@@ -1027,411 +1027,43 @@ class WSPR:
 def usage():
   sys.stderr.write("Usage: wspr.py -in CARD:CHAN\n")
   sys.stderr.write("       wspr.py -file fff [-chan xxx]\n")
-  sys.stderr.write("       wspr.py -bench\n")
-  sys.stderr.write("       wspr.py -big\n")
+  sys.stderr.write("       wspr.py -bench wsprfiles/xxx.txt\n")
+  sys.stderr.write("       wspr.py -opt wsprfiles/xxx.txt\n")
   # list sound cards
   weakaudio.usage()
   sys.exit(1)
 
-# what wsjt-x says is in each benchmark wav file.
-# files in wsprfiles/*
-bfiles = [
-[ False, "160708_1058.wav", """
-1058  -16  -1.9   10.140188    0   K4PRA         EM74     37   1506
-1058  -21  -1.8   10.140209    0   W4MO          EL87     37   1988
-""" ],
-[ False, "160708_1104.wav", """
-1104  -26   1.9   10.140222    0   KE9FQ         EN61     33   1328
-""" ],
-[ False, "160708_1106.wav", """
-1106  -17  -2.0   10.140113   -4   WB4HIR        EM95     33   1162
-1106  -23  -1.8   10.140209    1   W4MO          EL87     37   1988
-""" ],
-[ False, "160708_1108.wav", """
-1108  -17  -2.0   10.140107    0   N9PBD         EM58     37   1585
-""" ],
-[ False, "160708_1110.wav", """
-1110  -14  -2.0   10.140188   -1   K4PRA         EM74     37   1506
-""" ],
-[ False, "160708_1112.wav", """
-1112  -11  -1.9   10.140187    0   W4MO          EL86     37   2084
-1112  -24  -1.7   10.140266    0   W3CSW         FM19     37    604
-""" ],
-[ True, "160708_1114.wav", """
-1114  -26  -1.9   10.140210    0   W4MO          EL87     37   1988
-1114  -27  -2.0   10.140252    0   WA3DSP        FN20     23    401
-""" ],
-[ False, "160708_1116.wav", """
-1116  -25  -1.9   10.140121    0   WC8J          EN80     23   1025
-1116  -18  -1.8   10.140218    0   KD6RF         EM22     37   2383
-""" ],
-[ False, "160708_1118.wav", """
-1118  -24  -2.0   10.140113   -4   WB4HIR        EM95     33   1162
-1118  -13  -2.0   10.140188   -1   K4PRA         EM74     37   1506
-1118  -24  -1.9   10.140200    0   K5OK          EM12     37   2538
-""" ],
-[ False, "160708_1120.wav", """
-1120  -27  -1.9   10.140161   -2   AJ8S          EM89     27   1062
-1120  -26  -2.6   10.140217   -1   WB4CSD        FM08     27    810
-""" ],
-[ False, "160708_1122.wav", """
-1122    0  -1.0   10.140165    1   K3SC          FM19     37    604
-""" ],
-[ False, "160708_1124.wav", """
-1124  -18  -2.0   10.140107    0   N9PBD         EM58     37   1585
-1124  -17  -1.9   10.140187   -1   W4MO          EL86     37   2084
-1124  -20   2.0   10.140222    0   KE9FQ         EN61     33   1328
-1124   -4  -1.8   10.140266    0   W3CSW         FM19     37    604
-""" ],
-[ False, "160708_1126.wav", """
-1126  -26  -2.0   10.140113   -4   WB4HIR        EM95     33   1162
-1126  -16  -1.7   10.140191    0   K3CXW         FM19     30    604
-""" ],
-[ False, "160708_1128.wav", """
-1128  -27  -2.0   10.140200    1   K5OK          EM12     37   2538
-1128  -19  -2.0   10.140266   -1   K9AN          EN50     33   1516
-""" ],
-[ False, "160708_1130.wav", """
-1130  -28  -1.9   10.140121    0   WC8J          EN80     23   1025
-1130  -25  -2.1   10.140161    0   AJ8S          EM89     27   1062
-1130  -21  -2.0   10.140188   -1   K4PRA         EM74     37   1506
-1130  -17  -2.6   10.140217    0   WB4CSD        FM08     27    810
-""" ],
-[ False, "160708_1134.wav", """
-1134  -21  -2.0   10.140114   -4   WB4HIR        EM95     33   1162
-1134  -15  -1.9   10.140192    0   K3CXW         FM19     30    604
-1134  -28  -1.8   10.140210    0   W4MO          EL87     37   1988
-""" ],
-[ False, "160708_1136.wav", """
-1136  -15  -2.0   10.140187   -1   W4MO          EL86     37   2084
-1136   -2  -1.9   10.140266   -1   W3CSW         FM19     37    604
-""" ],
-[ False, "160708_1138.wav", """
-1138   -1  -1.0   10.140164    1   K3SC          FM19     37    604
-1138  -15  -2.0   10.140188   -1   K4PRA         EM74     37   1506
-""" ],
-[ False, "160708_1140.wav", """
-1140  -11  -2.6   10.140217   -1   WB4CSD        FM08     27    810
-1140  -23  -2.0   10.140266   -1   K9AN          EN50     33   1516
-""" ],
-[ False, "160708_1142.wav", """
-1142  -13  -2.0   10.140094    0   W9MDO         EN60     37   1352
-1142  -27   1.3   10.140166    1   <...>         EL89TP   30   1757
-1142  -24  -1.7   10.140246    3   WD4AHB        EL89     30   1799
-""" ],
-[ False, "160708_1144.wav", """
-1144  -16   2.0   10.140222    0   KE9FQ         EN61     33   1328
-""" ],
-[ False, "160708_1146.wav", """
-1146  -19  -1.9   10.140187    0   W4MO          EL86     37   2084
-1146  -24  -1.9   10.140210    0   W4MO          EL87     37   1988
-""" ],
-[ False, "160708_1148.wav", """
-1148  -10  -2.0   10.140107    0   N9PBD         EM58     37   1585
-1148  -18  -2.0   10.140188   -1   K4PRA         EM74     37   1506
-1148  -27  -1.7   10.140216   -1   KD6RF         EM22     37   2383
-1148  -22  -2.0   10.140266    0   K9AN          EN50     33   1516
-""" ],
-[ False, "160708_1150.wav", """
-1150  -20  -1.0   10.140164    1   K3SC          FM19     37    604
-1150  -14  -2.7   10.140217   -1   WB4CSD        FM08     27    810
-1150  -11  -1.9   10.140266    0   W3CSW         FM19     37    604
-""" ],
-[ True, "160708_1152.wav", """
-1152  -29  -2.0   10.140241   -1   AJ8S          EM89     27   1062
-""" ],
-[ False, "160708_1154.wav", """
-1154  -18  -1.8   10.140192    0   K3CXW         FM19     30    604
-""" ],
-[ False, "160708_1156.wav", """
-1156  -15  -1.9   10.140187    0   W4MO          EL86     37   2084
-""" ],
-[ True, "160708_1158.wav", """
-1158  -19  -2.1   10.140114   -4   WB4HIR        EM95     33   1162
-1158  -27  -2.0   10.140121    0   WC8J          EN80     23   1025
-1158  -25  -2.1   10.140188   -1   K4PRA         EM74     37   1506
-""" ],
-[ False, "160708_1200.wav", """
-1200  -22  -2.1   10.140161    0   AJ8S          EM89     27   1062
-1200  -11  -2.6   10.140216    0   WB4CSD        FM08     27    810
-""" ],
-[ False, "160708_1202.wav", """
-1202  -26  -2.1   10.140241    0   AJ8S          EM89     27   1062
-""" ],
-[ 1204, "160708_1204.wav", """
-1204  -22   1.9   10.140222    0   KE9FQ         EN61     33   1328
-""" ],
-[ False, "160708_1206.wav", """
-1206  -21  -1.8   10.140192    0   K3CXW         FM19     30    604
-""" ],
-[ False, "160708_1208.wav", """
-1208  -16  -2.0   10.140094    0   W9MDO         EN60     37   1352
-1208  -12  -2.0   10.140107    0   N9PBD         EM58     37   1585
-1208   -9  -2.0   10.140251    0   AE0MT         EN34     40   1787
-""" ],
-[ False, "160708_1210.wav", """
-1210  -17  -2.1   10.140188   -1   K4PRA         EM74     37   1506
-1210  -25  -1.8   10.140209    1   W4MO          EL87     37   1988
-1210  -15  -2.7   10.140216    0   WB4CSD        FM08     27    810
-""" ],
-[ False, "160708_1212.wav", """
-1212  -19  -2.0   10.140112   -4   WB4HIR        EM95     33   1162
-1212  -17  -0.9   10.140162    0   K3SC          FM19     37    604
-1212  -13  -2.0   10.140187    0   W4MO          EL86     37   2084
-""" ],
-[ False, "160708_1214.wav", """
-1214  -10  -0.6   10.140178   -1   KF9KV         EN52     37   1476
-1214  -22  -1.8   10.140266    0   W3CSW         FM19     37    604
-""" ],
-[ True, "160708_1216.wav", """
-1216  -28  -1.9   10.140121    0   WC8J          EN80     23   1025
-""" ],
-[ False, "160708_1218.wav", """
-1218  -21  -1.7   10.140209    1   W4MO          EL87     37   1988
-""" ],
-[ False, "160708_1220.wav", """
-1220   -9  -0.6   10.140178   -1   KF9KV         EN52     37   1476
-1220  -21  -2.6   10.140216    0   WB4CSD        FM08     27    810
-""" ],
-[ False, "160708_1222.wav", """
-1222  -17  -2.1   10.140106    0   N9PBD         EM58     37   1585
-1222  -20  -2.1   10.140187   -2   K4PRA         EM74     37   1506
-1222  -26  -1.9   10.140244    1   WD4AHB        EL89     30   1799
-1222  -15  -2.1   10.140266    0   K9AN          EN50     33   1516
-""" ],
-[ True, "160708_1224.wav", """
-1224  -23  -2.1   10.140112   -4   WB4HIR        EM95     33   1162
-1224  -13  -1.9   10.140187    0   W4MO          EL86     37   2084
-1224  -27  -2.0   10.140196    0   W8DGN         EM79     23   1222
-1224  -19   1.9   10.140222    0   KE9FQ         EN61     33   1328
-""" ],
-[ False, "160708_1226.wav", """
-1226  -14  -1.9   10.140266    0   W3CSW         FM19     37    604
-""" ],
-[ False, "160708_1228.wav", """
-1228  -25  -2.1   10.140199    0   K5OK          EM12     37   2538
-1228  -15  -2.1   10.140266    0   K9AN          EN50     33   1516
-""" ],
-[ False, "160708_1230.wav", """
-1230  -26  -2.0   10.140120    0   WC8J          EN80     23   1025
-1230  -26  -1.7   10.140209    0   W4MO          EL87     37   1988
-1230  -22  -2.7   10.140216   -1   WB4CSD        FM08     27    810
-""" ],
-[ True, "160708_1232.wav", """
-1232  -18  -2.0   10.140112   -2   WB4HIR        EM95     33   1162
-1232  -16  -2.0   10.140187    0   W4MO          EL86     37   2084
-1232  -24  -2.1   10.140187   -1   K4PRA         EM74     37   1506
-1232  -24  -1.9   10.140218   -1   KD6RF         EM22     37   2383
-""" ],
-[ False, "160708_1236.wav", """
-1236  -26   3.4   10.140209    0   KO8C          EN81     30    999
-""" ],
-[ False, "160708_1240.wav", """
-1240  -21  -1.7   10.140138    0   N0UE          EN34     10   1787
-1240  -17  -2.0   10.140186    0   W4MO          EL86     37   2084
-1240  -24  -1.8   10.140209    1   W4MO          EL87     37   1988
-1240  -25  -2.6   10.140216    0   WB4CSD        FM08     27    810
-1240  -18  -2.1   10.140265    0   K9AN          EN50     33   1516
-""" ],
-[ False, "160708_1242.wav", """
-1242  -23  -2.1   10.140113   -4   WB4HIR        EM95     33   1162
-""" ],
-[ False, "160708_1244.wav", """
-1244  -27  -2.0   10.140120    0   WC8J          EN80     23   1025
-1244  -15  -2.1   10.140187   -1   K4PRA         EM74     37   1506
-1244  -16   0.9   10.140221    0   KE9FQ         EN61     33   1328
-""" ],
-[ False, "160708_1248.wav", """
-1248  -28  -2.1   10.140199    0   K5OK          EM12     37   2538
-1248  -24  -1.9   10.140216    0   KD6RF         EM22     37   2383
-""" ],
-[ False, "160708_1250.wav", """
-1250  -14  -2.7   10.140215    0   WB4CSD        FM08     27    810
-""" ],
-[ False, "160708_1252.wav", """
-1252  -24  -1.9   10.140265    0   W3CSW         FM19     37    604
-""" ],
-[ False, "160708_1254.wav", """
-1254  -24  -2.1   10.140113   -3   WB4HIR        EM95     33   1162
-""" ],
-[ False, "160708_1300.wav", """
-1300  -18  -2.0   10.140186   -1   W4MO          EL86     37   2084
-1300  -20  -2.6   10.140215    0   WB4CSD        FM08     27    810
-""" ],
-[ False, "160708_1302.wav", """
-1302  -19  -2.0   10.140265    0   K9AN          EN50     33   1516
-""" ],
-[ True, "160708_1304.wav", """
-1304  -23  -2.1   10.140093    0   KM4WPM        EM74     47   1506
-1304  -28   3.4   10.140209    0   KO8C          EN81     30    999
-1304  -11   1.9   10.140221    0   KE9FQ         EN61     33   1328
-""" ],
-[ True, "160708_1306.wav", """
-1306  -16  -2.0   10.140092    0   KM4WPM        EM74     47   1506
-1306  -29   2.7   10.140267    0   W3HH          EL89     30   1799
-""" ],
-[ False, "160708_1308.wav", """
-1308  -18  -2.1   10.140106   -1   N9PBD         EM58     37   1585
-1308  -17  -2.0   10.140186    0   W4MO          EL86     37   2084
-1308  -25  -1.8   10.140208    1   W4MO          EL87     37   1988
-""" ],
-[ True, "160708_1310.wav", """
-1310  -21  -2.4   10.140187    0   K4PRA         EM74     37   1506
-1310  -20  -3.7   10.140215    0   WB4CSD        FM08     27    810
-""" ],
-[ False, "160708_1316.wav", """
-1316  -25  -1.8   14.097113    0   KD6RF         EM22     37   2383
-""" ],
-[ False, "160708_1318.wav", """
-1318  -24  -2.1   14.097153    0   K4COD         EM73     33   1580
-""" ],
-[ False, "160708_1320.wav", """
-1320  -18  -2.0   14.097043    0   K5XL          EM12     33   2538
-1320  -21  -1.9   14.097077    0   WA9EIC        EN60     37   1352
-""" ],
-[ False, "160708_1322.wav", """
-1322  -27   3.0   14.097121   -1   KE9FQ         EN61     33   1328
-""" ],
-[ False, "160708_1324.wav", """
-1324  -24  -2.3   14.097032    0   N0UE          EN34     10   1787
-1324   -6  -2.1   14.097163    0   K9AN          EN50     33   1516
-""" ],
-[ False, "160708_1330.wav", """
-1330  -20  -2.1   14.097148    0   AE0MT         EN34     40   1787
-1330  -14  -2.0   14.097153    0   K4COD         EM73     33   1580
-1330   -4  -2.1   14.097163    0   K9AN          EN50     33   1516
-""" ],
-[ False, "160708_1332.wav", """
-1332   -8  -2.0   14.097043    0   K5XL          EM12     33   2538
-1332  -16  -1.8   14.097116    0   KD6RF         EM22     37   2383
-1332  -15  -2.2   14.097143   -1   KA3JIJ        EM84     17   1370
-""" ],
-[ False, "160708_1340.wav", """
-1340  -19  -2.1   14.097037    0   W7NIX         EM65     33   1585
-1340  -27  -1.9   14.097077    0   WA9EIC        EN60     37   1352
-1340  -27  -2.1   14.097136   -1   KK4YEL        EL98     23   1796
-""" ],
-[ False, "160708_1342.wav", """
-1342  -17  -2.2   14.097094    0   W8DGN         EM79     23   1222
-1342  -24  -2.1   14.097142    0   KA3JIJ        EM84     17   1370
-""" ],
-[ False, "160708_1344.wav", """
-1344  -16  -2.1   14.097042    1   K5XL          EM12     33   2538
-1344  -14  -2.0   14.097152    0   K4COD         EM73     33   1580
-""" ],
-[ False, "160708_1348.wav", """
-1348  -11  -2.1   10.140105    0   N9PBD         EM58     37   1585
-1348  -10  -2.1   10.140186   -1   K4PRA         EM74     37   1506
-1348  -21  -1.4   10.140188    0   KE4MXW        EL98     37   1796
-1348  -19  -1.9   10.140226    0   KD6RF         EM22     37   2383
-1348   -6  -2.1   10.140249    0   AE0MT         EN34     40   1787
-1348  -16  -2.1   10.140265    0   K9AN          EN50     33   1516
-""" ],
-[ True, "160708_1350.wav", """
-1350  -23  -2.1   10.140094    0   W4ENN         EM64     20   1650
-1350  -26   3.4   10.140204    0   K4EH          EM73     37   1580
-1350   -5  -2.7   10.140214    0   WB4CSD        FM08     27    810
-""" ],
-[ False, "160708_1352.wav", """
-1352  -24   1.2   10.140165    1   <...>         EL89TP   30   1757
-1352  -19  -2.1   10.140194    0   W8DGN         EM79     23   1222
-""" ],
-[ False, "160708_1354.wav", """
-1354   -9  -2.2   10.140113   -4   WB4HIR        EM95     33   1162
-1354  -22   2.6   10.140267    0   W3HH          EL89     30   1799
-""" ],
-[ False, "160708_1356.wav", """
-1356  -19  -1.4   10.140188    0   KE4MXW        EL98     37   1796
-""" ],
-[ False, "160708_1358.wav", """
-1358  -21  -2.0   10.140119    0   WC8J          EN80     23   1025
-1358  -12  -2.1   10.140186   -1   K4PRA         EM74     37   1506
-1358  -23  -2.1   10.140198    0   K5OK          EM12     37   2538
-1358    1  -2.0   10.140265    0   W3CSW         FM19     37    604
-""" ],
-[ False, "160708_1400.wav", """
-1400  -20   1.2   10.140165    1   WD4LHT        EL89     30   1799
-1400   -4  -2.7   10.140215    0   WB4CSD        FM08     27    810
-1400  -17  -1.9   10.140227    1   KD6RF         EM22     37   2383
-""" ],
-[ False, "160708_1404.wav", """
-1404  -16  -1.4   10.140188    0   KE4MXW        EL98     37   1796
-1404  -10   2.8   10.140220    0   KE9FQ         EN61     33   1328
-""" ],
-[ False, "160708_1406.wav", """
-1406  -23  -2.1   10.140193    0   W8DGN         EM79     23   1222
-1406  -26   2.6   10.140267    0   W3HH          EL89     30   1799
-""" ],
-[ False, "160708_1408.wav", """
-1408    1  -2.1   10.140092    0   W9MDO         EN60     37   1352
-1408   -7  -2.1   10.140105    0   N9PBD         EM58     37   1585
-1408  -26  -2.1   10.140114    0   W9MDO         EN60     37   1352
-1408  -18  -2.1   10.140192    0   K2LYV         EL88     37   1892
-1408  -18  -2.2   10.140265    0   K9AN          EN50     33   1516
-""" ],
-[ True, "160708_1410.wav", """
-1410  -14  -2.1   10.140116   -2   WB4HIR        EM95     33   1162
-1410  -25  -2.1   10.140198    0   K5OK          EM12     37   2538
-1410   -1  -2.7   10.140215    0   WB4CSD        FM08     27    810
-1410    7  -2.0   10.140264    0   W3CSW         FM19     37    604
-""" ],
-[ False, "160708_1412.wav", """
-1412  -21   1.2   10.140165    1   <WD4LHT>      EL89TP   30   1757
-""" ],
-[ False, "160708_1416.wav", """
-1416  -27  -2.1   10.140119    0   WC8J          EN80     23   1025
-1416   -2  -2.1   10.140191    1   K4RCG/4                37
-1416  -19  -2.0   10.140231    0   KD6RF         EM22     37   2383
-1416  -22   2.5   10.140267    0   W3HH          EL89     30   1799
-""" ],
-[ True, "160708_1420.wav", """
-1420   -7  -2.2   10.140105    0   N9PBD         EM58     37   1585
-1420  -19  -2.1   10.140116   -2   WB4HIR        EM95     33   1162
-1420  -22   1.2   10.140164    1   WD4LHT        EL89     30   1799
-1420  -27  -2.0   10.140198    0   K5OK          EM12     37   2538
-1420    2  -2.8   10.140215    0   WB4CSD        FM08     27    810
-""" ],
-[ False, "160708_1424.wav", """
-1424  -18   2.8   10.140220    0   KE9FQ         EN61     33   1328
-""" ],
-[ False, "160708_1428.wav", """
-1428   -3  -2.6   10.140105    0   N9PBD         EM58     37   1585
-1428  -20  -2.6   10.140192    0   K2LYV         EL88     37   1892
-1428  -22   2.0   10.140267    0   W3HH          EL89     30   1799
-""" ],
-[ False, "160708_1430.wav", """
-1430  -26  -2.1   10.140119    0   WC8J          EN80     23   1025
-1430  -20   1.2   10.140164    0   <WD4LHT>      EL89TP   30   1757
-1430   -4  -2.7   10.140215    0   WB4CSD        FM08     27    810
-""" ],
-[ False, "160708_1432.wav", """
-1432  -11  -2.1   10.140116   -2   WB4HIR        EM95     33   1162
-1432  -24  -2.0   10.140234    0   KD6RF         EM22     37   2383
-""" ],
-[ False, "160708_1436.wav", """
-1436  -19   2.4   10.140267    0   W3HH          EL89     30   1799
-""" ],
-[ False, "160708_1438.wav", """
-1438  -27  -2.1   10.140193    0   W8DGN         EM79     23   1222
-""" ],
-[ False, "160708_1440.wav", """
-1440  -18  -2.1   10.140116   -3   WB4HIR        EM95     33   1162
-1440   -3  -2.7   10.140215    0   WB4CSD        FM08     27    810
-""" ],
-[ False, "160708_1444.wav", """
-1444  -25  -2.2   10.140119    0   WC8J          EN80     23   1025
-1444  -18   2.8   10.140220    0   KE9FQ         EN61     33   1328
-1444  -21   2.7   10.140266    0   W3HH          EL89     30   1799
-""" ],
-[ True, "160708_1448.wav", """
-1448   -8  -2.2   10.140092    0   W9MDO         EN60     37   1352
-1448  -14  -2.2   10.140116   -1   WB4HIR        EM95     33   1162
-1448  -30  -1.8   10.140193    0   WA8KNE        EM90     37   1602
-1448  -23  -2.1   10.140237    0   KD6RF         EM22     37   2383
-""" ],
-]
+def benchmark(wsjtfile, verbose):
+    dir = os.path.dirname(wsjtfile)
+    minutes = { } # keyed by hhmm
+    wsjtf = open(wsjtfile, "r")
+    for line in wsjtf:
+        line = re.sub(r'\xA0', ' ', line) # 0xA0 -> space
+        line = re.sub(r'[\r\n]', '', line)
+        m = re.match(r'^([0-9]{4}) +.*$', line)
+        if m == None:
+            print("oops: " + line)
+            continue
+        hhmm = m.group(1)
+        if not hhmm in minutes:
+            minutes[hhmm] = ""
+        minutes[hhmm] += line + "\n"
+    wsjtf.close()
 
-def benchmark(verbose):
+    info = [ ]
+    for hhmm in sorted(minutes.keys()):
+        ff = [ x for x in os.listdir(dir) if re.match('......_' + hhmm + '.wav', x) != None ]
+        if len(ff) == 1:
+            filename = ff[0]
+            info.append([ True, filename, minutes[hhmm] ])
+        elif len(ff) == 0:
+            sys.stderr.write("could not find .wav file in %s for %s\n" % (dir, hhmm))
+        else:
+            sys.stderr.write("multiple files in %s for %s: %s\n" % (dir, hhmm, ff))
+
+    return benchmark1(dir, info, verbose)
+
+def benchmark1(dir, bfiles, verbose):
     global chan
     chan = 0
     score = 0 # how many we decoded
@@ -1440,13 +1072,14 @@ def benchmark(verbose):
         if not bf[0]: # only the short list
             continue
         if verbose:
-            print bf[1]
-        filename = "wsprfiles/" + bf[1]
+            print(bf[1])
+        filename = dir + "/" + bf[1]
         r = WSPR()
         r.verbose = False
         r.gowav(filename, chan)
         all = r.get_msgs()
         got = { } # did wsjt-x see this? indexed by msg.
+        any_no = False
 
         wsa = bf[2].split("\n")
         for wsx in wsa:
@@ -1454,13 +1087,14 @@ def benchmark(verbose):
             if wsx != "":
                 wanted += 1
                 wsx = re.sub(r'  *', ' ', wsx)
-                found = False
+                found = None
                 for x in all:
+                    # x is [ minute, hz, msg, decode_time, snr, offset, drift ]
                     mymsg = x[2]
                     mymsg = mymsg.strip()
                     mymsg = re.sub(r'  *', ' ', mymsg)
                     if mymsg in wsx:
-                        found = True
+                        found = x
                         got[x[2]] = True
 
                 wa = wsx.split(' ')
@@ -1468,133 +1102,70 @@ def benchmark(verbose):
                 whz = float(wa[3])
                 if whz >= 10 and whz < 11:
                     whz = (whz - 10.1387) * 1000000.0
-                if whz >= 14 and whz < 15:
+                elif whz >= 14 and whz < 15:
                     whz = (whz - 14.0956) * 1000000.0
+                elif whz < 1.0:
+                    whz = whz * 1000000.0
 
-                if found:
+                if found != None:
                     score += 1
                     if verbose:
-                        print "yes %4.0f %s" % (float(whz), wmsg)
+                        print("yes %4.0f %s (%.1f %.1f) %s" % (float(whz), wa[2], found[1], found[5], wmsg))
                 else:
+                    any_no = True
                     if verbose:
-                        print "no  %4.0f %s" % (float(whz), wmsg)
+                        print("no  %4.0f %s %s" % (float(whz), wa[2], wmsg))
                 sys.stdout.flush()
         if True and verbose:
             for x in all:
                 if not (x[2] in got):
-                    print "MISSING: %6.1f %s" % (x[1], x[2])
+                    print("EXTRA: %6.1f %s" % (x[1], x[2]))
+        if False and any_no:
+            # help generate small.txt
+            for wsx in wsa:
+                print "NONONO %s" % (wsx)
     if verbose:
-        print "score %d of %d" % (score, wanted)
+        print("score %d of %d" % (score, wanted))
     return [ score, wanted ]
 
-def bigmark():
-    global budget, agcwinseconds, step_frac, ngoff, goff_taps, goff_down, goff_hz, fano_limit, driftmax, driftinc, coarse_bins, coarse_budget
-    while True:
-        budget = 50
-        step_frac = 4
-        driftmax = 2.0
-        ngoff = random.choice([ 2, 4, 6, 8, 10, 12 ])
-        fano_limit = random.choice([ 5000, 10000, 20000, 40000])
-        agcwinseconds = random.choice([ 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2 ])
-        goff_taps = random.choice([625, 751, 813, 875])
-        goff_down = random.choice([64, 128, 256])
-        goff_hz = random.choice([1, 1.5, 2])
-        # driftmax = random.choice([0.75, 1.0, 1.25, 1.5, 2.0])
-        driftinc = random.choice([0.1666, 0.333, 0.5, 0.666])
-        coarse_bins = random.choice([1,2,4])
-        coarse_budget = random.choice([ 0.1, 0.2, 0.3, 0.4, 0.5 ])
+vars = [
+    [ "driftmax", [ 0.75, 1.0, 1.25, 1.5, 1.75, 2, 3 ] ],
+    [ "coarse_budget", [ 0.3, 0.4, 0.5, 0.6, 0.7, 0.8 ] ],
+    [ "ngoff", [ 1, 2, 3, 4, 6 ] ],
+    [ "fano_limit", [ 5000, 10000, 20000, 30000, 40000, 60000 ] ],
+    [ "step_frac", [ 1, 1.5, 2, 2.5, 3, 4 ] ],
+    # [ "goff_down", [ 32, 64, 128, ] ],
+    # [ "agcwinseconds", [ 0.0, 0.3, 0.6, 0.8, 1.0, 1.5 ] ],
+    [ "budget", [ 9, 20, 50 ] ],
+    ]
 
-        sc = benchmark(False)
-        print "%d : %d %.1f %d %d %d %d %.1f %d %.1f %.1f %d %.1f" % (sc[0],
-                                                          budget,
-                                                          agcwinseconds,
-                                                          step_frac,
-                                                          ngoff,
-                                                          goff_taps,
-                                                          goff_down,
-                                                          goff_hz,
-                                                          fano_limit,
-                                                          driftmax,
-                                                          driftinc,
-                                                          coarse_bins,
-                                                          coarse_budget
-        )
+def printvars():
+    s = ""
+    for v in vars:
+        s += "%s=%s " % (v[0], eval(v[0]))
+    return s
 
-def smallmark():
-    global budget, agcwinseconds, step_frac, ngoff, goff_taps, goff_down, goff_hz, fano_limit, driftmax, driftinc, coarse_bins, coarse_budget
+def optimize(wsjtfile):
+    # warm up any caches, JIT, &c.
+    r = WSPR()
+    r.verbose = False
+    r.gowav("wsprfiles/160708_1114.wav", 0)
 
-    o_budget = budget
-    o_agcwinseconds = agcwinseconds
-    o_step_frac = step_frac
-    o_ngoff = ngoff
-    o_goff_taps = goff_taps
-    o_goff_down = goff_down
-    o_goff_hz = goff_hz
-    o_fano_limit = fano_limit
-    o_driftmax = driftmax
-    o_driftinc = driftinc
-    o_coarse_bins = coarse_bins
-    o_coarse_budget = coarse_budget
+    for v in vars:
+        for val in v[1]:
+            old = None
+            if "." in v[0]:
+                xglob = ""
+            else:
+                xglob = "global %s ; " % (v[0])
+            exec("%sold = %s" % (xglob, v[0]))
+            exec("%s%s = %s" % (xglob, v[0], val))
 
-    for ngoff in [ 1, 2, 3, 4, 5, 6, 7, 8, 9 ]:
-        sc = benchmark(False)
-        print "%d : ngoff=%d" % (sc[0], ngoff)
-    ngoff = o_ngoff
-
-    for goff_taps in [ 401, 451, 501 ]:
-        sc = benchmark(False)
-        print "%d : goff_taps=%d" % (sc[0], goff_taps)
-    goff_taps = o_goff_taps
-
-    for fano_limit in [ 5000, 10000, 15000, 20000, 30000, 40000 ]:
-        sc = benchmark(False)
-        print "%d : fano_limit=%d" % (sc[0], fano_limit)
-    fano_limit = o_fano_limit
-
-    for goff_down in [ 32, 64, 128, 256, 512 ]:
-        sc = benchmark(False)
-        print "%d : goff_down=%d" % (sc[0], goff_down)
-    goff_down = o_goff_down
-
-    for budget in [ 10, 20, 30, 40, 50, 100 ]:
-        sc = benchmark(False)
-        print "%d : budget=%d" % (sc[0], budget)
-    budget = o_budget
-
-    for coarse_budget in [ 0.1, 0.2, 0.3, 0.4, 0.5 ]:
-        sc = benchmark(False)
-        print "%d : coarse_budget=%.1f" % (sc[0], coarse_budget)
-    coarse_budget = o_coarse_budget
-
-    for agcwinseconds in [ 0.6, 0.7, 0.8, 0.9, 1.0, 1.1 ]:
-        sc = benchmark(False)
-        print "%d : agcwinseconds=%.1f" % (sc[0], agcwinseconds)
-    agcwinseconds = o_agcwinseconds
-
-    for driftinc in [ 0.333, 0.5, 0.666 ]:
-        sc = benchmark(False)
-        print "%d : driftinc=%.1f" % (sc[0], driftinc)
-    driftinc = o_driftinc
-
-    for goff_hz in [ 0.5, 1, 1.5, 2, 2.5 ]:
-        sc = benchmark(False)
-        print "%d : goff_hz=%.1f" % (sc[0], goff_hz)
-    goff_hz = o_goff_hz
-
-    for step_frac in [ 2, 4, 8 ]:
-        sc = benchmark(False)
-        print "%d : step_frac=%d" % (sc[0], step_frac)
-    step_frac = o_step_frac
-
-    for driftmax in [ 0.75, 1, 1.25, 1.5, 1.75, 2 ]:
-        sc = benchmark(False)
-        print "%d : driftmax=%.1f" % (sc[0], driftmax)
-    driftmax = o_driftmax
-
-    for coarse_bins in [ 1, 2, 4 ]:
-        sc = benchmark(False)
-        print "%d : coarse_bins=%d" % (sc[0], coarse_bins)
-    coarse_bins = o_coarse_bins
+            sc = benchmark(wsjtfile, False)
+            exec("%s%s = old" % (xglob, v[0]))
+            sys.stdout.write("%s=%s : " % (v[0], val))
+            sys.stdout.write("%d\n" % (sc[0]))
+            sys.stdout.flush()
 
 if False:
     r = WSPR()
@@ -1615,11 +1186,10 @@ if False:
 filename = None
 card = None
 bench = None
-big = False
-small = False
+opt = None
 
 def main():
-  global filename, card, bench, big, small
+  global filename, card, bench, opt
   i = 1
   while i < len(sys.argv):
     if sys.argv[i] == "-in":
@@ -1629,14 +1199,11 @@ def main():
       filename = sys.argv[i+1]
       i += 2
     elif sys.argv[i] == "-bench":
-      bench = True
-      i += 1
-    elif sys.argv[i] == "-big":
-      big = True
-      i += 1
-    elif sys.argv[i] == "-small":
-      small = True
-      i += 1
+      bench = sys.argv[i+1]
+      i += 2
+    elif sys.argv[i] == "-opt":
+      opt = sys.argv[i+1]
+      i += 2
     else:
       usage()
   
@@ -1644,18 +1211,16 @@ def main():
     xr = WSPR()
     xr.test_guess_offset()
   
-  if bench == True:
-    benchmark(True)
+  if bench != None:
+    sys.stdout.write("# %s %s\n" % (bench, printvars()))
+    benchmark(bench, True)
     sys.exit(0)
 
-  if big == True:
-    bigmark()
+  if opt != None:
+    sys.stdout.write("# %s %s\n" % (opt, printvars()))
+    optimize(opt)
     sys.exit(0)
-  
-  if small == True:
-    smallmark()
-    sys.exit(0)
-  
+
   if filename != None and card == None:
     r = WSPR()
     r.verbose = True
