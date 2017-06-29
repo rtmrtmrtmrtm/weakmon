@@ -602,51 +602,6 @@ class WSPR:
     # indexed by message text; value is [ samples_minute, hz, msg, snr, offset, drift ]
     msgs = { }
 
-    if False:
-        # try to find K08C at 209 hz
-        fine_rank = [ ]
-        for hz in numpy.arange(208, 211, 0.2):
-            for start in range(1000, 1300, 25):
-                fine_rank.append([ hz, start, 1 ])
-    if False:
-        for i in range(0, len(fine_rank)):
-            e = fine_rank[i]
-            if e[0] > 242.0 and e[0] < 245:
-                print "%d %s" % (i, e)
-
-    if False:
-        # just look for all the misses in tiny17.txt
-        # no  1510 -0.9 W4MO EL87 37
-        # no  1552 -1.0 WA3DSP FN20 23
-        # no  1517 -1.6 WB4CSD FM08 27
-        # no  1545 -0.7 WD4AHB EL89 30
-        # no  1413 -1.0 WB4HIR EM95 33
-        # no  1421 -0.9 WC8J EN80 23
-        # no  1510 -0.9 W4MO EL87 37
-        # no  1544 -0.8 WD4AHB EL89 30
-        # no  1493 -1.0 K2LYV EL88 37
-        # no  1487 -1.2 K4PRA EM74 37
-        # no  1509 4.5 KO8C EN81 30
-        # no  1567 3.7 W3HH EL89 30
-        budget = 100
-        fine_rank = [ ]
-        for e in [
-                # [ 1552,-1.0, ], [ 1517,-1.6, ],
-                [ 1545,-0.7, ],
-                # [ 1413,-1.0, ], [ 1544,-0.8, ],
-                # [ 1493,-1.0, ],
-                # [ 1487,-1.2, ],
-                # [ 1509,4.5, ],
-              ]:
-            hz = e[0] - self.downhz - 2.5
-            start = (e[1] + 2.0) * self.jrate
-            for hz1 in numpy.arange(hz - 1.0, hz + 1.1, 0.5):
-                for start1 in numpy.arange(start - self.jrate/10, start + self.jrate/10, self.jrate / 20):
-                    fine_rank.append([ hz1, start1, 1 ])
-
-    if False:
-        fine_rank = [ [ 243.4, 896, 1 ] ]
-
     # set up to cache FFTs at various offsets and drifts.
     xf = Xform(samples, self.jrate, self.jblock)
 
@@ -659,13 +614,6 @@ class WSPR:
         drift = drift_samples[rr[0]][0]
         if offset < 0:
             continue
-
-        #if True and (hz < 242 or hz > 245):
-        #    continue
-        #print rr
-
-        if False and (hz >= 242.8 and hz <= 243.6):
-            print rr
 
         if True:
             hza = [ hz - drift, hz + drift ]
@@ -1090,7 +1038,6 @@ class WSPR:
             logp0 = int(logp0)
         else:
             logp0 = -100
-        print logp0
         if p1 > 0:
             logp1 = math.log(2*p1, 2) - 0.5
             logp1 = math.floor(logp1 * 4 + 0.5)
