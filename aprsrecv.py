@@ -378,7 +378,7 @@ class APRSRecv:
 
     if len(bytes) < 18 or len(bytes) > 500:
       if debug:
-        print "bad len %d" % (len(bytes))
+        print("bad len %d" % (len(bytes)))
       return 0
 
     crc = crc16(bytes[0:-2])
@@ -396,7 +396,7 @@ class APRSRecv:
       for j in range(i, i+6):
         if bytes[j] & 1:
           if debug:
-            print "early address termination"
+            print("early address termination")
           return 0
       i += 6
       ssid = bytes[i]
@@ -406,20 +406,20 @@ class APRSRecv:
         addrsdone = True
     if addrsdone == False:
       if debug:
-        print "no address termination"
+        print("no address termination")
       return 0
 
     if i + 4 > len(bytes):
       if debug:
-        print "too short"
+        print("too short")
       return 0
     if bytes[i] != 0x03:
       if debug:
-        print "control not 0x03"
+        print("control not 0x03")
       return 0
     if bytes[i+1] != 0xf0:
       if debug:
-        print "PID not 0xf0"
+        print("PID not 0xf0")
       return 0
     i += 2
 
@@ -581,7 +581,7 @@ def benchmark(wavname, verbose):
   ar.callback = cb
   ar.gofile(wavname)
   if verbose:
-    print "%d %s" % (wins, wavname)
+    print("%d %s" % (wins, wavname))
   return wins
 
 def optimize(wavname):
@@ -610,11 +610,11 @@ def optimize(wavname):
                 xglob = ""
             else:
                 xglob = "global %s ; " % (v[0])
-            exec "%sold = %s" % (xglob, v[0])
-            exec "%s%s = %s" % (xglob, v[0], val)
+            exec("%sold = %s" % (xglob, v[0]))
+            exec("%s%s = %s" % (xglob, v[0], val))
 
             sc = benchmark(wavname, False)
-            exec "%s%s = old" % (xglob, v[0])
+            exec("%s%s = old" % (xglob, v[0]))
             sys.stdout.write("%s=%s : " % (v[0], val))
             sys.stdout.write("%d\n" % (sc))
             sys.stdout.flush()
@@ -624,7 +624,7 @@ def cb(fate, msg, start, space_to_mark):
     # fate=1 -- CRC failed but syntax look OK.
     # fate=2 -- CRC is correct.
     if fate >= 1:
-        print "%d %d %.1f %s" % (fate, start, space_to_mark, msg)
+        print("%d %d %.1f %s" % (fate, start, space_to_mark, msg))
 
 def usage():
   sys.stderr.write("Usage: aprsrecv.py [file...] [-sound]\n")

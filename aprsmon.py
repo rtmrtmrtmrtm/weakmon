@@ -20,7 +20,7 @@ def cb(fate, msg, start, space_to_mark):
     # fate=1 -- CRC failed but syntax look OK.
     # fate=2 -- CRC is correct.
     if fate >= 2:
-        print "%s" % (msg)
+        print("%s" % (msg))
 
 def main():
     parser = weakargs.stdparse('Decode APRS.')
