@@ -86,7 +86,7 @@ def wchoice_test():
         x = wchoice(a, 2)
         for e in x:
             counts[e] = counts.get(e, 0) + 1
-    print counts
+    print(counts)
 
 # listen for CQ, answer.
 class JT65Mon:
@@ -121,14 +121,13 @@ class JT65Mon:
 
         if self.mycall != None and self.mygrid != None:
             # talk to pskreporter.
-            print "reporting to pskreporter as %s at %s" % (self.mycall, self.mygrid)
+            print("reporting to pskreporter as %s at %s" % (self.mycall, self.mygrid))
             self.pskr = pskreport.T(self.mycall, self.mygrid, "weakmon 0.2", False)
         else:
-            print "not reporting to pskreporter since call/grid not in weak.cfg"
+            print("not reporting to pskreporter since call/grid not in weak.cfg")
             self.pskr = None
 
     # read latest msgs from all cards.
-    # each msg is [ minute, hz, msg, decode_time, nerrs, snr, card# ]
     def readall(self, now, bands):
         minute = self.r[0].minute(now)
 
@@ -140,7 +139,7 @@ class JT65Mon:
             bandcount1 = 0 # msgs with lowist reed-solomon error counts
             msgs = self.r[ci].get_msgs()
             # each msg is a jt65.Decode
-            for m in msgs[self.msgs_index[ci]:]:
+            for m in msgs:
                 m.card = ci
                 if m.minute == minute:
                     bandcount += 1
@@ -151,7 +150,7 @@ class JT65Mon:
                     z.append([ ci, m ])
                     d[m.msg] = z
                 else:
-                    print "LATE: %s %.1f %s" % (self.r[ci].ts(m.decode_time), m.hz(), m.msg)
+                    print("LATE: %s %.1f %s" % (self.r[ci].ts(m.decode_time), m.hz(), m.msg))
             x = self.bandinfo.get(bands[ci], 0)
             self.bandinfo[bands[ci]] = 0.5 * x + 0.5 * bandcount1
 
@@ -162,8 +161,6 @@ class JT65Mon:
                                             bandcount,
                                             bandcount1))
             f.close()
-
-            self.msgs_index[ci] = len(msgs)
 
         # append each msg to jt65-all.txt.
         for txt in d:
@@ -190,7 +187,7 @@ class JT65Mon:
                                                                m.hz(),
                                                                m.msg)
 
-            print info
+            print(info)
 
             f = open(self.allname, "a")
             f.write(info + "\n")
@@ -322,7 +319,6 @@ class JT65Mon:
     def go(self):
         # receive card(s)
         self.r = [ ]
-        self.msgs_index = [ ]
         self.rth = [ ]
         for c in self.incards:
             r = jt65.JT65()
@@ -333,7 +329,6 @@ class JT65Mon:
             th.daemon = True
             th.start()
             self.rth.append(th)
-            self.msgs_index.append(0)
 
         while True:
             self.one()
