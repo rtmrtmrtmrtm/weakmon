@@ -6,7 +6,6 @@
 
 import socket
 import sys
-import thread
 import threading
 import time
 import struct
@@ -18,7 +17,7 @@ import weakutil
 # otherwise a new one.
 #
 eb200s = { }
-mu = thread.allocate_lock()
+mu = threading.Lock()
 def open(dev):
     global eb200s, mu
     mu.acquire()
@@ -55,7 +54,7 @@ class EB200:
 
         # input buffer of buffers filled by reader() thread.
         self.bufs = [ ]
-        self.bufs_mu = thread.allocate_lock()
+        self.bufs_mu = threading.Lock()
 
         # last sequence number seen from EB200 in a UDP packet.
         self.seq = None
