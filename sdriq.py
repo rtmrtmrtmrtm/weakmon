@@ -21,7 +21,6 @@
 
 import sys
 import os
-import thread
 import serial
 import time
 import threading
@@ -78,7 +77,7 @@ def hx(s):
 # otherwise a new one.
 #
 sdriqs = { }
-mu = thread.allocate_lock()
+mu = threading.Lock()
 def open(dev):
     global sdriqs, mu
     mu.acquire()
@@ -91,13 +90,13 @@ def open(dev):
 class SDRIQ:
     def __init__(self, devname):
         # only one request/response at a time.
-        self.w_mu = thread.allocate_lock()
+        self.w_mu = threading.Lock()
 
         # protect self.ctl[].
-        self.ctl_mu = thread.allocate_lock()
+        self.ctl_mu = threading.Lock()
 
         # protect self.data[].
-        self.data_mu = thread.allocate_lock()
+        self.data_mu = threading.Lock()
         
         self.port = serial.Serial(devname,
                                   #timeout=2,
@@ -165,7 +164,7 @@ class SDRIQ:
         # and appending buffers of bytes to child_bufs[].
 
         self.child_bufs = [ ]
-        self.child_bufs_mu = thread.allocate_lock()
+        self.child_bufs_mu = threading.Lock()
 
         th = threading.Thread(target=lambda : self.child1())
         th.daemon = True

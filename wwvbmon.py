@@ -27,7 +27,6 @@ import math
 import time
 import calendar
 import subprocess
-import thread
 import argparse
 
 # a[] and b[] are -1/0/1 bit sequences.
@@ -252,7 +251,7 @@ class WWVB:
         return False
 
     if False:
-        print "saving to aaa.wav, max %.0f" % (numpy.max(self.samples))
+        print("saving to aaa.wav, max %.0f" % (numpy.max(self.samples)))
         weakutil.writewav1(self.samples, "aaa.wav", self.rate)
 
     # pad at start and end in case samples started late / ended early.
@@ -334,10 +333,10 @@ class WWVB:
         wwvbts = self.ts(self.minute2unix(m))
     else:
         wwvbts = "-"
-    print "%s %s %.3f %.2f" % (unixts,
+    print("%s %s %.3f %.2f" % (unixts,
                                wwvbts,
                                guessfx,
-                               matchsec)
+                               matchsec))
 
     sys.stdout.flush()
 
@@ -482,7 +481,7 @@ class WWVB:
         if i0 >= 60:
           i0 -= 60
         if i0 < 0:
-          print "oops i0 %d" % (i0)
+          print("oops i0 %d" % (i0))
           i0 = 0
         i1 = i0 + 1
         # print "starti %d tt %.3f tm_sec %d i0 %d" % (starti, tt, ttt.tm_sec, i0)

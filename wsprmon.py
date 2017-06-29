@@ -20,7 +20,8 @@ import re
 import random
 import copy
 import weakcat
-import urllib
+from six.moves import urllib
+#import urllib.request, urllib.parse, urllib.error
 import weakutil
 import weakargs
 
@@ -85,7 +86,7 @@ def wchoice_test():
         x = wchoice(a, 2)
         for e in x:
             counts[e] = counts.get(e, 0) + 1
-    print counts
+    print(counts)
 
 class WSPRMon:
     def __init__(self, incard, cat, oneband):
@@ -130,14 +131,14 @@ class WSPRMon:
         self.rth.start()
 
         if self.mycall == None or self.mygrid == None:
-            print "not reporting to wsprnet because no mycall/mygrid in weak.cfg"
+            print("not reporting to wsprnet because no mycall/mygrid in weak.cfg")
         elif True:
             self.nth = threading.Thread(target=lambda : self.gonet())
             self.nth.daemon = True
             self.nth.start()
-            print "reporting to wsprnet as %s at %s." % (self.mycall, self.mygrid)
+            print("reporting to wsprnet as %s at %s." % (self.mycall, self.mygrid))
         else:
-            print "not reporting to wsprnet."
+            print("not reporting to wsprnet.")
 
     def close(self):
         self.running = False
@@ -190,12 +191,12 @@ class WSPRMon:
                 url += "mode=2"
 
                 try:
-                    req = urllib.urlopen(url)
+                    req = urllib.request.urlopen(url)
                     for junk in req:
                         pass
                     req.close()
                 except:
-                    print "wsprnet GET failed for %s" % (msg[2])
+                    print("wsprnet GET failed for %s" % (msg[2]))
                     pass
 
     # process messages from *two* cycles ago, i.e. the latest
@@ -229,7 +230,7 @@ class WSPRMon:
         msg = re.sub(r'  *', ' ', msg)
         m = re.search(r'^([A-Z0-9\/]+) ([A-Z0-9]+) ([0-9]+)', msg)
         if m == None:
-            print "wsprmon log could not parse %s" % (msg)
+            print("wsprmon log could not parse %s" % (msg))
             return None
 
         call = m.group(1)
@@ -261,7 +262,7 @@ class WSPRMon:
                                                         dt,
                                                         drift,
                                                         entity)
-        print "%s" % (info)
+        print("%s" % (info))
 
         f = open(self.logname, "a")
         f.write("%s\n" % (info))

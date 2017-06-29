@@ -100,7 +100,7 @@ class K3(object):
               return r
           z = self.port.read()
           if z == "":
-              print "k3 read timeout"
+              print("k3 read timeout")
           self.buf += z
   
     # we're expecting some information from the radio in
@@ -155,6 +155,9 @@ class K3(object):
             cmd = "fb"
         cmd += "%011d" % (int(fr))
         self.cmd(cmd)
+
+    def setpower(self, watts):
+        self.cmd("PC%03d" % watts)
 
 # Ten-Tec RX-340
 class RX340(object):
@@ -397,7 +400,7 @@ class PRC138(object):
         [ rx, tx ] = self.get_fr()
         mode = self.get_mode()
         bw = self.get_bw()
-        print "prc138 sync %d %d %s %.1f" % (rx, tx, mode, bw)
+        print("prc138 sync %d %d %s %.1f" % (rx, tx, mode, bw))
 
     def get_fr(self):
         self.port.write("FR\r")
