@@ -26,7 +26,6 @@ import time
 import copy
 import calendar
 import subprocess
-import thread
 import threading
 import re
 import random
@@ -42,13 +41,13 @@ import gc
 # performance tuning parameters.
 #
 budget = 9     # CPU seconds (9)
-noffs = 3      # look for sync every jblock/noffs (2)
+noffs = 4      # look for sync every jblock/noffs (2)
 off_scores = 1 # consider off_scores*noffs starts per freq bin (3, 4)
-pass1_frac = 0.1 # fraction budget to spend before subtracting (0.5, 0.9, 0.5)
+pass1_frac = 0.2 # fraction budget to spend before subtracting (0.5, 0.9, 0.5)
 hetero_thresh = 6 # zero out bin that wins too many times (9, 5, 7)
 soft_iters = 75 # try r-s soft decode this many times (35, 125, 75)
-min_soft = 10  # always designate at least this many errors for soft decode
-max_soft = 40  # never more than this many soft error symbols
+subslop = 0.01 # search in this window to match subtraction symbols
+subgap = 1.3  # extra subtract()s this many hz on either side of main bin
 
 # information about one decoded signal.
 class Decode:
@@ -100,11 +99,51 @@ def broken_msg(msg):
              "F11XTN", "7T4EUZ", "EF5KYD", "A80CCM", "HF7VBA",
              "VV3EZD", "DT8ZBT", "8Z9RTD", "7U0NNP", "6P8CGY", "WH9ASY",
              "V96TCU", "BF3AUF", "7B5JDP", "1HFXR1", "28NTV",
-             "388PNI", "TN2CQQ", "Y99CGR" ]
+             "388PNI", "TN2CQQ", "Y99CGR", "R21KIC", "X26DPX", "QG4YMT",
+             "Y99CGR", "0L6MWK", "KG0EEY", "777SZP", "JU3SJO", "J76LH4XC5EO20",
+             "A7FVFZOQH3", "GI5OF44MGO", "LN3CWS", "QTJNYSW6", "1FHXR1",
+             "RG9CP6Z", "HIKGWR", "U5A9R7", "MF0ZG3", "9OOATN", "SVUW5S",
+             "7MD2HY", "D5F2Q4Y", "L9HTT", "51FLJM", "6ZNDRN", "HTTROP",
+             "ED0Z9O", "CDP7W2", "Q0TZ20VS", "TYKFVKV", "12VPKMR", "XNC34V",
+             "GO950IZ", "MU6BNL", "302KDY",
+    ]
     for bad in bads:
         if bad in msg:
             return True
     return False
+
+# weighted choice, to pick symbols to ignore in soft decode.
+# a[i] = [ value, weight ]
+def wchoice(a, n):
+    total = 0.0
+    for e in a:
+        total += e[1]
+
+    ret = [ ]
+    got = [ False ] * len(a)
+    while len(ret) < n:
+        x = random.random() * total
+        for ai in range(0, len(a)):
+            if got[ai] == False:
+                e = a[ai]
+                if x <= e[1]:
+                    ret.append(e[0])
+                    total -= e[1]
+                    got[ai] = True
+                    break
+                x -= e[1]
+
+    return ret
+
+def wchoice_test():
+    a = [ [ "a", .1 ], [ "b", .1 ], [ "c", .4 ], [ "d", .3 ], [ "e", .1 ] ]
+    counts = { }
+    for iter in range(0, 500):
+        x = wchoice(a, 2)
+        assert len(x) == 2
+        for e in x:
+            counts[e] = counts.get(e, 0) + 1
+    print(counts)
 
 very_first_time = True
 
@@ -115,13 +154,13 @@ class JT65:
 
   def __init__(self):
       self.done = False
-      self.msgs_lock = thread.allocate_lock()
+      self.msgs_lock = threading.Lock()
       self.msgs = [ ]
       self.verbose = False
       self.enabled = True # True -> run process(); False -> don't
 
-      self.jrate = 11025/2 # sample rate for processing (FFT &c)
-      self.jblock = 4096/2 # samples per symbol
+      self.jrate = int(11025/2) # sample rate for processing (FFT &c)
+      self.jblock = int(4096/2) # samples per symbol
 
       # set self.start_time to the UNIX time of the start
       # of a UTC minute.
@@ -203,7 +242,7 @@ class JT65:
 
   def opencard(self, desc):
       # self.cardrate = 11025 # XXX
-      self.cardrate = 11025 / 2 # XXX jrate
+      self.cardrate = int(11025 / 2) # XXX jrate
       self.audio = weakaudio.new(desc, self.cardrate)
 
   def gocard(self):
@@ -273,12 +312,13 @@ class JT65:
 
       self.msgs_lock.release()
 
-  # someone wants a list of all messages received.
+  # return a list of all messages received
+  # since the last call to get_msgs().
   # each msg is a Decode.
-  # # each msg is [ minute, hz, msg, decode_time, nerrs, snr ]
   def get_msgs(self):
       self.msgs_lock.acquire()
-      a = copy.copy(self.msgs)
+      a = self.msgs
+      self.msgs = [ ]
       self.msgs_lock.release()
       return a
 
@@ -306,10 +346,10 @@ class JT65:
       txa = [ ]
       npr = 2
       for pi in range(0, npr):
-          min_hz = pi * (2580 / npr)
+          min_hz = pi * int(2580 / npr)
           min_hz = max(min_hz - 50, 0)
 
-          max_hz = (pi + 1) * (2580 / npr)
+          max_hz = (pi + 1) * int(2580 / npr)
           max_hz = min(max_hz + 175, 2580)
 
           txa.append(time.time())
@@ -331,19 +371,19 @@ class JT65:
           t0 = time.time()
           pra[pi].join(budget+2.0)
           if pra[pi].is_alive():
-              print "\n%s child process still alive, enabled=%s\n" % (self.ts(time.time()),
-                                                                      self.enabled)
+              print("\n%s child process still alive, enabled=%s\n" % (self.ts(time.time()),
+                                                                      self.enabled))
               pra[pi].terminate()
               pra[pi].join(2.0)
           t1 = time.time()
           tha[pi].join(2.0)
           if tha[pi].isAlive():
               t2 = time.time()
-              print "\n%s reader thread still alive, enabled=%s, %.1f %.1f %.1f\n" % (self.ts(t2),
+              print("\n%s reader thread still alive, enabled=%s, %.1f %.1f %.1f\n" % (self.ts(t2),
                                                                                       self.enabled,
                                                                                       t0-txa[pi],
                                                                                       t1-t0,
-                                                                                      t2-t1)
+                                                                                      t2-t1))
           rca[pi].close()
 
   def readchild(self, recv_conn):
@@ -365,25 +405,18 @@ class JT65:
   # for each decode, call thunk(Decode).
   # only look at sync tones from min_hz .. max_hz.
   def process0(self, samples, samples_time, thunk, min_hz, max_hz):
-    global budget, noffs, off_scores, pass1_frac
+    global budget, noffs, off_scores, pass1_frac, subgap
 
     if self.enabled == False:
         return
 
     if self.verbose:
-        print "len %d %.1f, type %s, rates %.1f %.1f" % (len(samples),
+        print("len %d %.1f, type %s, rates %.1f %.1f" % (len(samples),
                                                          len(samples) / float(self.cardrate),
                                                          type(samples[0]),
                                                          self.cardrate,
-                                                         self.jrate)
+                                                         self.jrate))
         sys.stdout.flush()
-
-    if type(samples[0]) != numpy.int16 and type(samples[0]) != numpy.float32:
-        print "samples %s" % (type(samples[0]))
-
-    if False:
-        print "saving to aaa.wav, max %.0f" % (numpy.max(samples))
-        weakutil.writewav1(samples, "aaa.wav", self.cardrate)
 
     # for budget.
     t0 = time.time()
@@ -416,29 +449,118 @@ class JT65:
               si += resampleblock
           samples = numpy.concatenate(ba)
 
-    # pad at start+end b/c transmission might have started early
-    # or late.
-    #sm = numpy.mean(abs(samples))
+    # assume samples[0] is at the start of the minute, so that
+    # signals ought to start one second into samples[].
+    # pad so that there two seconds before the start of
+    # the minute, and a few seconds after 0:49.
+    pad0 = 2 # add two seconds to start
+    endsec = 49 + 4 # aim to have padded samples end on 0:53
     sm = numpy.mean(abs(samples[2000:5000]))
-    r0 = (numpy.random.random(self.jrate*3) - 0.5) * sm * 2
+    r0 = (numpy.random.random(self.jrate*pad0) - 0.5) * sm * 2
     r0 = r0.astype(numpy.float32)
-    r1 = (numpy.random.random(self.jrate*4) - 0.5) * sm * 2
-    r1 = r1.astype(numpy.float32)
-    samples = numpy.concatenate([ r0, samples, r1 ])
+    if len(samples) >= endsec*self.jrate:
+        # trim at end
+        samples = numpy.concatenate([ r0, samples[0:endsec*self.jrate] ])
+    else:
+        # pad at end
+        needed = endsec*self.jrate - len(samples)
+        r1 = (numpy.random.random(needed) - 0.5) * sm * 2
+        r1 = r1.astype(numpy.float32)
+        samples = numpy.concatenate([ r0, samples, r1 ])
 
+    [ noise, scores ] = self.scores(samples, min_hz, max_hz)
+
+    # scores[i] = [ bin, correlation, valid, start ]
+
+    bin_hz = self.jrate / float(self.jblock)
+    ssamples = numpy.copy(samples) # subtracted
+    already = { } # suppress duplicate msgs
+    subalready = { }
+    decodes = 0
+
+    # first without subtraction.
+    # don't blow the whole budget, to ensure there's time
+    # to start decoding on subtracted signals.
+    i = 0
+    while i < len(scores) and ((decodes < 1 and (time.time() - t0) < budget) or
+                               (decodes > 0 and (time.time() - t0) < budget * pass1_frac)):
+        hz = scores[i][0] * (self.jrate / float(self.jblock))
+        dec = self.process1(samples, hz, noise, scores[i][3], already)
+        if dec != None:
+            decodes += 1
+            dec.minute = samples_minute
+            thunk(dec)
+            if not dec.msg in subalready:
+                ssamples = self.subtract_v4(ssamples, dec.hza,
+                                            dec.start, dec.twelve)
+                ssamples = self.subtract_v4(ssamples, numpy.add(dec.hza, subgap),
+                                            dec.start, dec.twelve)
+                ssamples = self.subtract_v4(ssamples, numpy.add(dec.hza, -subgap),
+                                            dec.start, dec.twelve)
+                subalready[dec.msg] = True
+        i += 1
+    nfirst = i
+
+    if False:
+        print("pass 2")
+        weakutil.writewav1(ssamples, "x.wav", self.jrate)
+        # jt65files/160424_1725.wav
+        zhz = 1545.0
+        self.process1(ssamples, zhz, noise, 20680, already) # N2NTX KE0CRP R-08
+        self.process1(ssamples, zhz, noise, 20821, already) # N2NTX KE0CRP R-08
+        self.process1(ssamples, zhz, noise, 21000, already) # N2NTX KE0CRP R-08
+        self.process1(ssamples, zhz, noise, 21162, already) # N2NTX KE0CRP R-08
+        self.process1(ssamples, zhz, noise, 21300, already) # N2NTX KE0CRP R-08
+
+    # re-score subtracted samples.
+    [ junk_noise, scores ] = self.scores(ssamples, min_hz, max_hz)
+
+    # now try again, on subtracted signal.
+    # we do a complete new pass since a strong signal might have
+    # been unreadable due to another signal at a somewhat higher
+    # frequency.
+    i = 0
+    while i < len(scores) and (time.time() - t0) < budget:
+        hz = scores[i][0] * (self.jrate / float(self.jblock))
+        dec = self.process1(ssamples, hz, noise, scores[i][3], already)
+        if dec != None:
+            decodes += 1
+            dec.minute = samples_minute
+            thunk(dec)
+            # this subtract() is important for performance.
+            if not dec.msg in subalready:
+                ssamples = self.subtract_v4(ssamples, dec.hza,
+                                            dec.start, dec.twelve)
+                ssamples = self.subtract_v4(ssamples, numpy.add(dec.hza, subgap),
+                                            dec.start, dec.twelve)
+                ssamples = self.subtract_v4(ssamples, numpy.add(dec.hza, -subgap),
+                                            dec.start, dec.twelve)
+                subalready[dec.msg] = True
+        i += 1
+
+    if self.verbose:
+        print("%d..%d, did %d of %d, %d hits, maxrss %.1f MB" % (
+            min_hz,
+            max_hz,
+            nfirst+i,
+            len(scores),
+            decodes,                                              
+            resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0*1024.0)))
+
+  # assign a score to each frequency bin,
+  # according to how similar it seems to a sync tone pattern.
+  # samples should have already been padded.
+  # returns [ noise, scores ]
+  # noise is for SNR.
+  # scores[i] is [ sync_bin, score, True, start ]
+  def scores(self, samples, min_hz, max_hz):
     bin_hz = self.jrate / float(self.jblock)
     minbin = max(5, int(min_hz  / bin_hz))
     maxbin = int(max_hz / bin_hz)
 
-    # assign a score to each frequency bin,
-    # according to how similar it seems to a sync tone pattern.
-
-    # offs = [ 0, self.jblock / 2 ]
-    # offs = [ 0, 512, 1024, 3*512 ]
-    # offs = [ 0, 256, 2*256, 3*256, 4*256, 5*256, 6*256, 7*256 ]
-    offs = [ (x*self.jblock)/noffs for x in range(0, noffs) ]
+    offs = [ int((x*self.jblock)/noffs) for x in range(0, noffs) ]
     m = []
-    noises = numpy.zeros(self.jblock/2 + 1) # for SNR
+    noises = numpy.zeros(self.jblock//2 + 1) # for SNR
     nnoises = 0
     for oi in range(0, len(offs)):
       m.append([])
@@ -479,85 +601,27 @@ class JT65:
 
         cc = numpy.correlate(v, pattern)
 
-        indices = range(0, len(cc))
+        indices = list(range(0, len(cc)))
         indices = sorted(indices, key=lambda i : -cc[i])
         indices = indices[0:off_scores]
         for ii in indices:
           scores.append([ j, cc[ii], True, offs[oi] + ii*self.jblock ])
 
-    # release m[]'s memory.
-    m = None
-
-    # scores[i] = [ bin, correlation, valid, start ]
-
-    if False:
-        want_hz = 571
-        bin_hz = self.jrate / float(self.jblock)
-        for e in scores:
-            ehz = e[0] * bin_hz
-            if abs(ehz - want_hz) < 2.5:
-                print e
-                e[1] *= 100
-
     # highest scores first.
     scores = sorted(scores, key=lambda sc : -sc[1])
 
-    ssamples = numpy.copy(samples) # subtracted
-    already = { } # suppress duplicate msgs
-    decodes = 0
-
-    # first without subtraction.
-    # don't blow the whole budget, to ensure there's time
-    # to start decoding on subtracted signals.
-    i = 0
-    while i < len(scores) and (time.time() - t0) < budget * pass1_frac:
-        hz = scores[i][0] * (self.jrate / float(self.jblock))
-        dec = self.process1(samples, hz, noise, scores[i][3], already)
-        if dec != None:
-            decodes += 1
-            dec.minute = samples_minute
-            thunk(dec)
-            scores[i][2] = False
-            ssamples = self.subtract_v3(ssamples, dec.hza, dec.start, dec.twelve)
-        i += 1
-    nfirst = i
-
-    # filter out entries that we just decoded.
-    scores = [ x for x in scores if x[2] ]
-
-    # now try again, on subtracted signal.
-    # we do a complete new pass since a strong signal might have
-    # been unreadable due to another signal at a somewhat higher
-    # frequency.
-    i = 0
-    while i < len(scores) and (time.time() - t0) < budget:
-        hz = scores[i][0] * (self.jrate / float(self.jblock))
-        dec = self.process1(ssamples, hz, noise, scores[i][3], already)
-        if dec != None:
-            decodes += 1
-            dec.minute = samples_minute
-            thunk(dec)
-            # this subtract() is important for performance.
-            ssamples = self.subtract_v3(ssamples, dec.hza, dec.start, dec.twelve)
-        i += 1
-
-    if self.verbose:
-        print "%d..%d, did %d of %d, %d hits, maxrss %.1f MB" % (
-            min_hz,
-            max_hz,
-            nfirst+i,
-            len(scores),
-            decodes,                                              
-            resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0*1024.0))
+    return [ noise, scores ]
 
   # subtract a decoded signal (hz/start/twelve) from the samples,
   # to that we can then decode weaker signals underneath it.
   # i.e. interference cancellation.
   # generates the right tone for each symbol, finds the best
   # offset w/ correlation, finds the amplitude, subtracts in the time domain.
-  # no FFT.
-  def subtract_v3(self, osamples, hza, start, twelve):
+  def subtract_v4(self, osamples, hza, start, twelve):
+      global subslop
+
       sender = JT65Send()
+      bin_hz = self.jrate / float(self.jblock)
 
       # the 126 symbols, each 0..66
       symbols = sender.symbols(twelve)
@@ -569,21 +633,34 @@ class JT65:
       else:
           samples = samples[start:]
 
-      for i in range(0, 126):
-          # generate 4096 samples of the symbol's tone.
-          t = numpy.arange(0, (float(self.jblock)/self.jrate), 1.0/self.jrate)
+      bigslop = int(self.jblock * subslop)
+      #bigslop = int((self.jblock / hza[0]) / 2.0) + 1
+      #bigslop = int(self.jblock / hza[0]) + 1
+
+      # find amplitude of each symbol.
+      amps = [ ]
+      offs = [ ]
+      tones = [ ]
+      i = 0
+      while i < 126:
+          nb = 1
+          while i+nb < 126 and symbols[i+nb] == symbols[i]:
+              nb += 1
+
           sync_hz = self.sync_hz(hza, i)
-          hz = sync_hz + symbols[i] * (self.jrate / float(self.jblock))
-          tone = numpy.cos(t * 2.0 * numpy.pi * hz)
+          hz = sync_hz + symbols[i] * bin_hz
+          tone = weakutil.costone(self.jrate, hz, self.jblock*nb)
 
           # nominal start of symbol in samples[]
           i0 = i * self.jblock
-          i1 = i0 + self.jblock
+          i1 = i0 + nb*self.jblock
           
-          # search +/- slop
-          i0 = max(0, i0 - 50)
-          i1 = min(len(samples), i1 + 50)
-
+          # search +/- slop.
+          # we search separately for each symbol b/c the
+          # phase may drift over the minute, and we
+          # want the tone to match exactly.
+          i0 = max(0, i0 - bigslop)
+          i1 = min(len(samples), i1 + bigslop)
           cc = numpy.correlate(samples[i0:i1], tone)
           mm = numpy.argmax(cc) # thus samples[i0+mm]
 
@@ -592,9 +669,21 @@ class JT65:
           # correlation would be sum(tone*tone).
           cx = cc[mm]
           c1 = numpy.sum(tone * tone)
-          amp = cx / c1
+          a = cx / c1
 
-          samples[i0+mm:i0+mm+self.jblock] -= tone * amp
+          amps.append(a)
+          offs.append(i0+mm)
+          tones.append(tone)
+
+          i += nb
+
+      ai = 0
+      while ai < len(amps):
+          a = amps[ai]
+          off = offs[ai]
+          tone = tones[ai]
+          samples[off:off+len(tone)] -= tone * a
+          ai += 1
 
       if start < 0:
           nsamples = samples[(-start):]
@@ -603,72 +692,60 @@ class JT65:
 
       return nsamples
 
-  #
-  # guess the sample number at which the first sync symbol starts.
-  #
-  # this is not used any more; it's a better use of CPU time
-  # to just look for sync correlation at a bunch of sub-symbol offsets.
-  #
-  def guess_offset(self, samples, hz):
-      if True:
-          # FIR filter so we can predict delay through the filter.
-          ntaps = 1001 # XXX 1001 works well
-          fdelay = ntaps / 2
-          taps = weakutil.bandpass_firwin(ntaps, hz-4, hz+4, self.jrate)
+  # this doesn't work, probably because phase is not
+  # coherent over the message.
+  def subtract_v5(self, osamples, hza, start, twelve):
+      sender = JT65Send()
 
-          # filtered = lfilter(taps, 1.0, samples)
+      samples = numpy.copy(osamples)
+      assert start >= 0
 
-          # filtered = numpy.convolve(samples, taps, mode='valid')
-          # filtered = scipy.signal.convolve(samples, taps, mode='valid')
-          filtered = scipy.signal.fftconvolve(samples, taps, mode='valid')
-          # hack to match size of lfilter() output
-          filtered = numpy.append(numpy.zeros(ntaps-1), filtered)
-      else:
-          # butterworth IIR
-          fdelay = 920 # XXX I don't know how to predict filter delay.
-          filter = weakutil.butter_bandpass(hz - 4, hz + 4, self.jrate, 3)
-          filtered = lfilter(filter[0], filter[1], samples)
+      symbols = sender.symbols(twelve)
+      bin_hz = self.jrate / float(self.jblock)
+      msg = sender.fsk(symbols, hza, bin_hz, self.jrate, self.jblock)
 
-      y = filtered
+      slop = int((self.jblock / hza[0]) / 2.0) + 1
+      i0 = start - slop
+      i1 = start + len(msg) + slop
+      cc = numpy.correlate(samples[i0:i1], msg)
+      mm = numpy.argmax(cc) # thus msg starts at samples[i0+mm]
 
-      # correlation rapidly changes from negative to positive
-      # even when in a sync tone.
-      y = abs(y)
+      # what is the amplitude?
+      # if actual signal had a peak of 1.0, then
+      # correlation would be sum(tone*tone).
+      cx = cc[mm]
+      c1 = numpy.sum(msg * msg)
+      a = cx / c1
 
-      # average y down to a much lower rate to make the
-      # correlate() go faster. scipy.resample() works but
-      # is much too slow.
-      downfactor = 32
-      #y = scipy.signal.resample(y, len(y) / downfactor)
-      ya = weakutil.moving_average(y, downfactor)
-      y = ya[0::downfactor]
+      samples[i0+mm:i0+mm+len(msg)] -= msg * a
 
-      z = numpy.array([])
-      for p in pattern:
-        if p > 0:
-          z = numpy.append(z, numpy.ones(self.jblock / downfactor))
-        else:
-          z = numpy.append(z, -1*numpy.ones(self.jblock / downfactor))
+      return samples
 
-      cc = numpy.correlate(y, z)
-      mm = numpy.argmax(cc)
-
-      # sort, putting index of highest correlation first.
-      iv = sorted(range(0, len(cc)), key = lambda i : -cc[i])
-
+  # a signal begins near samples[start0], at frequency hza[0]..hza[1].
+  # return a better guess at the start.
+  def guess_start(self, samples, hza, start0):
+      bin_hz = self.jrate / float(self.jblock)
       offs = [ ]
-      for mm in iv[0:20]:
-          if len(offs) == 0 or (len(offs) < 3 and abs(mm - offs[0]) >= 5 and abs(mm-offs[-1]) >= 5):
-              offs.append(mm)
-
-      for i in range(0, len(offs)):
-          mm = offs[i]
-          mm *= downfactor
-          mm -= fdelay
-          offs[i] = mm
-
-      offs = offs[0:1] # XXX too expensive to look at multiple offsets
-      return offs
+      slop = self.jblock // noffs
+      i = 0
+      while i < 126:
+          nb = 0
+          while i+nb < 126 and pattern[nb+i] == 1:
+              nb += 1
+          if nb > 0:
+              hz = self.sync_hz(hza, i)
+              tone = weakutil.costone(self.jrate, hz, self.jblock*nb)
+              i0 = start0 + i * self.jblock
+              i1 = i0 + nb*self.jblock
+              cc = numpy.correlate(samples[i0-slop:i1+slop], tone)
+              mm = numpy.argmax(cc)
+              offs.append(i0-slop+mm - i0)
+              i += nb
+          else:
+              i += 1
+      medoff = numpy.median(offs)
+      start = int(start0 + medoff)
+      return start
 
   # the sync tone is believed to be hz to within one fft bin.
   # return hz with higher resolution.
@@ -695,8 +772,8 @@ class JT65:
 
       # frequencies at 1/4 and 3/4 way through samples.
       n = len(freqs)
-      m1 = numpy.median(freqs[0:n/2])
-      m2 = numpy.median(freqs[n/2:]) 
+      m1 = numpy.median(freqs[0:n//2])
+      m2 = numpy.median(freqs[n//2:]) 
       
       # frequencies at start and end.
       m0 = m1 - (m2 - m1) / 2.0
@@ -738,14 +815,15 @@ class JT65:
 
     bin_hz = self.jrate / float(self.jblock) # FFT bin size, in Hz
 
-    if start < 0:
-        samples = numpy.append([0.0]*(-start), samples)
-    else:
-        samples = samples[start:]
-    if len(samples) < 126*self.jblock:
+    assert start >= 0
+    #if start < 0:
+    #    samples = numpy.append([0.0]*(-start), samples)
+    #else:
+    #    samples = samples[start:]
+    if len(samples) - start < 126*self.jblock:
         return None
 
-    hza = self.guess_freq(samples, xhz)
+    hza = self.guess_freq(samples[start:], xhz)
     if hza == None:
         return None
     if self.sync_bin(hza, 0) < 5:
@@ -756,6 +834,13 @@ class JT65:
         return None
     if self.sync_bin(hza, 125) + 2+64 > self.jblock/2:
         return None
+
+    start = self.guess_start(samples, hza, start)
+    if start < 0:
+        return None
+    if len(samples) - start < 126*self.jblock:
+        return None
+    samples = samples[start:]
 
     m = [ ]
     for i in range(0, 126):
@@ -800,27 +885,43 @@ class JT65:
     # for each non-sync time slot, decide which tone is strongest,
     # which yields the channel symbol.
     sa = [ ]
-    strength = [ ] # symbol signal / 2nd-best signal
+    strength = [ ] # symbol signal / mean of bins in same time slot
     sigs = [ ] # for SNR
     for pi in range(0,126):
       if pattern[pi] == -1:
         sync_bin = self.sync_bin(hza, pi)
-        a = sorted(range(0,64), key=lambda bin: -m[pi][sync_bin+2+bin])
+        a = sorted(list(range(0,64)), key=lambda bin: -m[pi][sync_bin+2+bin])
         sa.append(a[0])
 
         b0 = sync_bin+2+a[0] # bucket w/ strongest signal
-        b1 = sync_bin+2+a[1] # bucket w/ 2nd-strongest signal
 
         s0 = m[pi][b0] # level of strongest symbol
         sigs.append(s0)
 
-        # mean of bins in same time slot
-        s1 = numpy.mean(m[pi][sync_bin+2:sync_bin+2+64])
+        if False:
+            # bucket w/ 2nd-strongest signal
+            b1 = sync_bin+2+a[1]
+            s1 = m[pi][b1] # second-best bin power
+            if s1 != 0.0:
+                strength.append(s0 / s1)
+            else:
+                strength.append(0.0)
 
-        if s1 != 0.0:
-            strength.append(s0 / s1)
-        else:
-            strength.append(0.0)
+        if True:
+            # mean of bins in same time slot
+            s1 = numpy.mean(m[pi][sync_bin+2:sync_bin+2+64])
+            if s1 != 0.0:
+                strength.append(s0 / s1)
+            else:
+                strength.append(0.0)
+
+        if False:
+            # median of bins in same time slot
+            s1 = numpy.median(m[pi][sync_bin+2:sync_bin+2+64])
+            if s1 != 0.0:
+                strength.append(s0 / s1)
+            else:
+                strength.append(0.0)
 
     [ nerrs, msg, twelve ] = self.process2(sa, strength)
 
@@ -837,9 +938,10 @@ class JT65:
         rawsnr = 0.1
     rawsnr /= (2500.0 / 2.7) # 2.7 hz noise b/w -> 2500 hz b/w
     snr = 10 * math.log10(rawsnr)
+    snr = snr - 63 # empirical, to match wsjt-x 1.7
 
     if self.verbose and not (msg in already):
-      print "%6.1f %5d: %2d %3.0f %s" % ((hza[0]+hza[1])/2.0, start, nerrs, snr, msg)
+      print("%6.1f %5d: %2d %3.0f %s" % ((hza[0]+hza[1])/2.0, start, nerrs, snr, msg))
     already[msg] = True
 
     return Decode(hza, nerrs, msg, snr, None,
@@ -877,6 +979,7 @@ class JT65:
             return [-1, "???", None]
         msg = self.unpack(twelve)
         if not broken_msg(msg):
+            #self.analyze1(sa, strength, twelve)
             return [nerrs, msg, twelve]
 
     if True:
@@ -886,27 +989,70 @@ class JT65:
         # errors, since otherwise Reed-Solomon would have
         # decoded.
 
+        # map from strength to probability of incorrectness,
+        # from analyze1() and analyze1.py < analyze1
+
+        # this are for strength = sym / (mean of other sym bins in this time slot)
+        sm = [ 1.0, 1.0, 0.837, 0.549, 0.318, 0.276, 0.215, 0.171,
+               0.126, 0.099, 0.079, 0.055, 0.041, 0.034, 0.027, 0.020, 0.018, 0.013,
+               0.012, 0.008, 0.022, 0.000, 0.004, 0.014, 0.008, ]
+
+        # map for strongest / second-strongest
+        #sm = [ 1.0, 0.4, 0.07, 0.015, 0.01 ]
+
+        # map for strongest / median
+        #sm = [ 1.0, 1.0, 0.829, 0.619, 0.379, 0.250, 0.251, 0.193, 0.195, 0.172,
+        #       0.154, 0.152, 0.139, 0.125, 0.099, 0.107, 0.105, 0.112, 0.096, 0.086,
+        #       0.061, 0.060, 0.059, 0.056, 0.050, 0.047, 0.045, 0.045, 0.027, 0.056,
+        #       0.030, 0.028, 0.023, 0.043, 0.058, 0.038, 0.082, 0.031, 0.025, 0.022,
+        #       0.025, 0.070, 0.034, 0.052, 0.036, 0.062, 0.028, 0.013, 0.016, 0.032,
+        #       0.028, 0.050, 0.024, 0.03, 0.033, 0.03, 0.037, 0.022, 0.015, 0.02,
+        #       0.078, 0.035, 0.043, 0.080, 0.020, 0.020, 0.02, 0.050, 0.062, 0.02,
+        #       0.021, 0.02, 0.02, 0.02, ]
+
         # for each symbol time, how likely to be wrong.
-        weights = numpy.divide(1.0, numpy.add(strength, 1.0))
+        #weights = numpy.divide(1.0, numpy.add(strength, 1.0))
+        weights = [ ]
+        for i in range(0, len(strength)):
+            ss = int(round(strength[i]))
+            if ss >= len(sm):
+                weights.append(0.01) # 1% chance of wrong
+            else:
+                weights.append(sm[ss])
         total_weight = numpy.sum(weights)
+        expected_errors = total_weight
 
         # weakest first
-        worst = sorted(range(0, 63), key = lambda i: strength[i])
+        worst = sorted(list(range(0, 63)), key = lambda i: strength[i])
 
         best = None # [ matching_symbols, nerrs, msg, twelve ]
 
+        wa = [ ]
+        for si in range(0, 63):
+            wa.append([ si, weights[si] ])
+
         # try various numbers of erasures.
         for iter in range(0, soft_iters):
-            #nera = (iter % 35) + 5
-            nera = int((random.random() * (max_soft - min_soft)) + min_soft)
-            eras = [ ]
-            for j in range(0, 63):
-                if len(eras) >= nera:
-                    break
-                si = worst[j]
-                if random.random() < nera*(weights[si] / total_weight):
-                    # rs_decode() has this weird convention for erasures.
-                    eras.append(63-1-si)
+            xmin = max(0, int(expected_errors) - 10)
+            xmin = min(xmin, 35)
+            xmax = min(int(expected_errors) + 10, 40)
+            nera = int((random.random() * (xmax - xmin)) + xmin)
+
+            if True:
+                eras = [ ]
+                for j in range(0, 63):
+                    if len(eras) >= nera:
+                        break
+                    si = worst[j]
+                    if random.random() < nera*(weights[si] / total_weight):
+                        # rs_decode() has this weird convention for erasures.
+                        eras.append(63-1-si)
+
+            if False:
+                eras = wchoice(wa, nera)
+                for j in range(0, len(eras)):
+                    eras[j] = 63 - 1 - eras[j]
+
             [nerrs,twelve] = self.rs_decode(sa, eras)
             if nerrs >= 0:
                 msg = self.unpack(twelve)
@@ -931,6 +1077,25 @@ class JT65:
 
     # Reed Solomon could not decode.
     return [-1, "???", None ]
+
+  # we have a good decode.
+  # record strength vs whether the symbol was OK or not.
+  # to derive a better mapping from strength to
+  # probability of correctness.
+  # feed output into analyze1.py to generate
+  # mapping from strength to probability of incorrectness,
+  # which process2() uses.
+  def analyze1(self, sa, strength, twelve):
+      # re-encode to find the correct symbols.
+      sa1 = self.rs_encode(twelve)
+      f = open("analyze1", "a")
+      for i in range(0, len(sa)):
+          if sa[i] == sa1[i]:
+              ok = 1
+          else:
+              ok = 0
+          f.write("%f %s\n" % (strength[i], ok))
+      f.close()
 
   # convert packed character to Python string.
   # 0..9 a..z space
@@ -980,14 +1145,14 @@ class JT65:
       
     lat = (ng % 180) - 90
     ng = int(ng / 180)
-    long = (ng * 2) - 180
+    lng = (ng * 2) - 180
 
-    g = "%c%c%c%c" % (ord('A') + int((179-long)/20),
+    g = "%c%c%c%c" % (ord('A') + int((179-lng)/20),
                       ord('A') + int((lat+90)/10),
-                      ord('0') + int(((179-long)%20)/2),
+                      ord('0') + int(((179-lng)%20)/2),
                       ord('0') + (lat+90)%10)
 
-    #print "lat %d, long %d, %s" % (lat, long, g)
+    #print "lat %d, long %d, %s" % (lat, lng, g)
     return g
 
   def unpack(self, a):
@@ -1059,17 +1224,17 @@ class JT65:
     for i in range(4, -1, -1):
       j = nc1 % 42
       msg[i] = c[j]
-      nc1 = nc1 / 42
+      nc1 = nc1 // 42
 
     for i in range(9, 4, -1):
       j = nc2 % 42
       msg[i] = c[j]
-      nc2 = nc2 / 42
+      nc2 = nc2 // 42
 
     for i in range(12, 9, -1):
       j = nc3 % 42
       msg[i] = c[j]
-      nc3 = nc3 / 42
+      nc3 = nc3 // 42
 
     return ''.join(msg)
 
@@ -1144,7 +1309,7 @@ class JT65Send:
             return ord(ch) - ord('A') + 10
         if ch == ' ':
             return 36
-        print "NT65Send.nchar(%s) oops" % (ch)
+        print("NT65Send.nchar(%s) oops" % (ch))
         return 0
 
     # returns a 28-bit number.
@@ -1211,15 +1376,15 @@ class JT65Send:
         if re.match(r'^[A-R][A-R][0-9][0-9]$', g) == None:
             return -1
 
-        long = (ord(g[0]) - ord('A')) * 20
-        long += (ord(g[2]) - ord('0')) * 2
-        long = 179 - long
+        lng = (ord(g[0]) - ord('A')) * 20
+        lng += (ord(g[2]) - ord('0')) * 2
+        lng = 179 - lng
 
         lat = (ord(g[1]) - ord('A')) * 10
         lat += (ord(g[3]) - ord('0')) * 1
         lat -= 90
 
-        x = (long + 180) / 2
+        x = (lng + 180) / 2
         x *= 180
         x += lat + 90
 
@@ -1267,7 +1432,7 @@ class JT65Send:
             pg = self.packgrid(g)
             upg = r.unpackgrid(pg)
             if g != upg.strip():
-                print "packgrid oops %s" % (g)
+                print("packgrid oops %s" % (g))
         for call in [ "AB1HL", "K1JT", "M0TRJ", "KK4BMV", "2E0CIN", "HF9D",
                       "6Y4K", "D4Z", "8P6DR", "ZS2I", "3D2RJ",
                       "WB3D", "S59GCD", "T77C", "4Z5AD", "A45XR", "OJ0V",
@@ -1276,7 +1441,7 @@ class JT65Send:
             pc = self.packcall(call)
             upc = r.unpackcall(pc)
             if call != upc.strip():
-                print "packcall oops %s %d %s" % (call, pc, upc)
+                print("packcall oops %s %d %s" % (call, pc, upc))
         for msg in [ "AB1HL K1JT FN42", "CQ DX CO3HMR EL82", "KD6HWI PY7VI R-12",
                      "KD5RBW TU 73", "CQ N5OSK EM25", "PD9BG KG7EZ RRR",
                      "W1JET KE0HQZ 73", "WB3D OM4SX -16", "WA3ETR IZ2QGB RR73",
@@ -1285,7 +1450,7 @@ class JT65Send:
             upm = r.unpack(pm)
             upm = re.sub(r'  *', ' ', upm)
             if msg != upm.strip():
-                print "pack oops %s %s %s" % (msg, pm, upm)
+                print("pack oops %s %s %s" % (msg, pm, upm))
         for bf in bfiles:
             wsa = bf[1].split("\n")
             for wsx in wsa:
@@ -1297,7 +1462,7 @@ class JT65Send:
                     upm = r.unpack(pm)
                     upm = re.sub(r'  *', ' ', upm)
                     if msg != upm.strip():
-                        print "pack oops %s %s %s" % (msg, pm, upm)
+                        print("pack oops %s %s %s" % (msg, pm, upm))
 
     # call the Reed-Solomon encoder.
     # twelve is 12 6-bit symbol numbers (after packing).
@@ -1325,11 +1490,9 @@ class JT65Send:
         return hz
 
     # ba should be 126 symbols, each 0..66.
-    # hza is [start,end] frequency of symbol 0,
+    # hza is [start,end] frequency,
     #   as from guess_freq().
     # spacing is inter-symbol frequency spacing.
-    # returns an array of audio samples at 11025.
-    # if rate is 11025, symsamples should be 4096.
     def fsk(self, ba, hza, spacing, rate, symsamples):
         # the frequency needed at each sample.
         hzv = numpy.array([])
@@ -1429,8 +1592,7 @@ class JT65Send:
 def usage():
   sys.stderr.write("Usage: jt65.py -in CARD:CHAN [-center xxx]\n")
   sys.stderr.write("       jt65.py -file fff [-center xxx] [-chan xxx]\n")
-  sys.stderr.write("       jt65.py -bench\n")
-  sys.stderr.write("       jt65.py -nbench dir\n")
+  sys.stderr.write("       jt65.py -bench dir/decodes.txt\n")
   sys.stderr.write("       jt65.py -send msg\n")
   # list sound cards
   weakaudio.usage()
@@ -1438,19 +1600,19 @@ def usage():
 
 if False:
   r = JT65()
-  print r.unpack([61, 37, 30, 28, 9, 27, 61, 58, 26, 3, 49, 16]) # G3LTF DL9KR JO40
-  print r.unpack([61, 37, 30, 28, 5, 27, 61, 58, 26, 3, 49, 16]) # G3LTE DL9KR JO40
-  print r.unpack([61, 37, 30, 28, 9, 27, 61, 58, 26, 3, 49, 17]) # G3LTF DL9KR JO41
+  print(r.unpack([61, 37, 30, 28, 9, 27, 61, 58, 26, 3, 49, 16])) # G3LTF DL9KR JO40
+  print(r.unpack([61, 37, 30, 28, 5, 27, 61, 58, 26, 3, 49, 16])) # G3LTE DL9KR JO40
+  print(r.unpack([61, 37, 30, 28, 9, 27, 61, 58, 26, 3, 49, 17])) # G3LTF DL9KR JO41
   sys.exit(0)
 
 if False:
   r = JT65()
   # G3LTF DL9KR JO40
-  print r.process2([
+  print(r.process2([
     14, 16, 9, 18, 4, 60, 41, 18, 22, 63, 43, 5, 30, 13, 15, 9, 25, 35, 50, 21, 0,
     36, 17, 42, 33, 35, 39, 22, 25, 39, 46, 3, 47, 39, 55, 23, 61, 25, 58, 47, 16, 38,
     39, 17, 2, 36, 4, 56, 5, 16, 15, 55, 18, 41, 7, 26, 51, 17, 18, 49, 10, 13, 24
-    ], None)
+    ], None))
   sys.exit(0)
 
 if False:
@@ -1486,7 +1648,7 @@ def benchmark1(dir, bfiles, verbose):
         if bf[0] == False:
             continue
         if verbose:
-            print bf[1]
+            print(bf[1])
         wsa = bf[2].split("\n")
 
         filename = dir + "/" + bf[1]
@@ -1517,17 +1679,17 @@ def benchmark1(dir, bfiles, verbose):
                 if found:
                     score += 1
                     if verbose:
-                        print "yes %s" % (m.group(1))
+                        print("yes %s" % (m.group(1)))
                 else:
                     if verbose:
-                        print "no %s" % (m.group(1))
+                        print("no %s" % (m.group(1)))
                 sys.stdout.flush()
         if True and verbose:
             for x in all:
                 if x.nerrs < 25 and not (x.msg in got):
-                    print "MISSING: %6.1f %d %.0f %s" % (x.hz(), x.nerrs, x.snr, x.msg)
+                    print("EXTRA: %6.1f %d %.0f %s" % (x.hz(), x.nerrs, x.snr, x.msg))
     if verbose:
-        print "score %d of %d" % (score, wanted)
+        print("score %d of %d" % (score, wanted))
     return [ score, wanted ]
 
 # given a file with wsjt-x 1.6.0 results, sitting in a directory
@@ -1547,7 +1709,7 @@ def benchmark(wsjtfile, verbose):
         line = re.sub(r'[\r\n]', '', line)
         m = re.match(r'^([0-9]{4}) +[0-9.-]+ +[0-9.-]+ +[0-9]+ +# *(.*)$', line)
         if m == None:
-            print "oops: " + line
+            print("oops: " + line)
             continue
         hhmm = m.group(1)
         if not hhmm in minutes:
@@ -1556,7 +1718,7 @@ def benchmark(wsjtfile, verbose):
     wsjtf.close()
 
     info = [ ]
-    for hhmm in minutes:
+    for hhmm in sorted(minutes.keys()):
         ff = [ x for x in os.listdir(dir) if re.match('......_' + hhmm + '.wav', x) != None ]
         if len(ff) == 1:
             filename = ff[0]
@@ -1573,14 +1735,14 @@ def optimize(wsjtfile):
         # [ "weakutil.use_numpy_rfft", [ False, True ] ],
         # [ "weakutil.use_numpy_arfft", [ False, True ] ],
         # [ "weakutil.fos_threshold", [ 0.125, 0.25, 0.5, 0.75, 1.0 ] ],
-        [ "noffs", [ 1, 2, 3, 4, 6, 8 ] ],
-        [ "pass1_frac", [ 0.05, 0.1, 0.2, 0.3 ] ],
-        [ "min_soft", [ 5, 10, 15, 20, 25, 30, 35 ] ],
-        [ "max_soft", [ 30, 35, 40, 45 ] ],
-        [ "budget", [ 6, 9, 15 ] ],
+        [ "subslop", [ 0.005, 0.01, 0.02, 0.04, 0.08, 0.16 ] ],
+        [ "noffs", [ 1, 2, 3, 4, 6, 8, 10, 12 ] ],
+        [ "pass1_frac", [ 0.05, 0.1, 0.2, 0.3, 0.4, 0.5 ] ],
         [ "soft_iters", [ 0, 25, 50, 75, 100, 200, 400, 800 ] ],
-        # [ "off_scores", [ 1, 2, 4 ] ],
-        # [ "hetero_thresh", [ 4, 6, 8, 10 ] ],
+        [ "subgap", [ 0.3, 0.7, 1.0, 1.3, 1.6, 2.0, 2.3, 2.6 ] ],
+        [ "budget", [ 6, 9, 15 ] ],
+        [ "hetero_thresh", [ 4, 6, 8, 10 ] ],
+        [ "off_scores", [ 1, 2, 4 ] ],
         ]
 
     sys.stdout.write("# ")
@@ -1600,8 +1762,8 @@ def optimize(wsjtfile):
                 xglob = ""
             else:
                 xglob = "global %s ; " % (v[0])
-            exec "%sold = %s" % (xglob, v[0])
-            exec "%s%s = %s" % (xglob, v[0], val)
+            exec("%sold = %s" % (xglob, v[0]))
+            exec("%s%s = %s" % (xglob, v[0], val))
 
             #sys.stdout.write("# ")
             #for vx in vars:
@@ -1609,7 +1771,7 @@ def optimize(wsjtfile):
             #sys.stdout.write("\n")
 
             sc = benchmark(wsjtfile, False)
-            exec "%s%s = old" % (xglob, v[0])
+            exec("%s%s = old" % (xglob, v[0]))
             sys.stdout.write("%s=%s : " % (v[0], val))
             sys.stdout.write("%d\n" % (sc[0]))
             sys.stdout.flush()
