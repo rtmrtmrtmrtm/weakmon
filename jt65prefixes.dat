@@ -21,11 +21,13 @@ AMATEUR RADIO PREFIXES
 3C 	Equatorial Guinea
 3C0 	Annobon
 3D2 	Conway Reef
-3D2 	Fiji Is
+3D2 	Fiji
 3D2 	Rotuma
 3D2/C 	Conway Reef
-3D2/F 	Fiji Islands
+3D2/F 	Fiji
 3D2/R 	Rotuma
+3D2AG 	Fiji
+3D2TS 	Fiji
 3D6 	Swaziland
 3DA0 	Swaziland
 3G 	Chile
@@ -45,7 +47,7 @@ AMATEUR RADIO PREFIXES
 4I 	Philippines
 4J 	Azerbaijan
 4J1	Malyj Vysotskij
-4K 	Russian Polar Sta
+4K 	Azerbaijan
 4L 	Georgia
 4M 	Venezuela
 4N1 	Yugoslavia (Regular)
@@ -184,7 +186,7 @@ A3 	Tonga
 A4 	Oman
 A5 	Bhutan
 A51 	Bhutan
-A6 	United Arab Emirites
+A6 	United Arab Emirates
 A7 	Qatar
 A8 	Liberia
 A9 	Bahrain
@@ -459,6 +461,7 @@ FR 	Tromelin
 FR/G 	Glorioso
 FR/J 	Juan De Nova
 FR/T 	Tromelin
+FR1GV   France
 FS 	St Martin
 FT0W 	Crozet
 FT0X 	Kerguelen Is
@@ -512,6 +515,7 @@ HE 	Switzerland
 HF 	Poland
 HF0 	So Shetland
 HF0F 	Poland
+HF0S 	Poland
 HG 	Hungary
 HH 	Haiti
 HI 	Dominican Rep
@@ -556,7 +560,7 @@ IP 	Italy
 IQ 	Italy
 IR 	Italy
 IS 	Sardinia
-IT 	Sicily
+IT 	Italy
 IU 	Italy
 IV 	Italy
 IW 	Italy
@@ -602,10 +606,10 @@ JX 	Jan Mayen
 JY 	Jordan
 K 	United States
 #KG4 	USA OR Guantanamo Bay
-Single letter suffixes KG4x and three letter suffixes KG4xxx can be
-issued anywhere in the USA fourth call district, and used anywhere
-in the United States.
-Two letter suffixes KG4xx are issued for Guantanamo Bay.
+#Single letter suffixes KG4x and three letter suffixes KG4xxx can be
+#issued anywhere in the USA fourth call district, and used anywhere
+#in the United States.
+#Two letter suffixes KG4xx are issued for Guantanamo Bay.
 #the KG6 prefix seems to be mostly retired in favor of KH2.
 #KG6 	Guam
 KG6DX 	Guam
@@ -620,9 +624,11 @@ KH6 	Hawaii
 KH6IDF  United States
 KH7 	Kure Is
 KH7K 	Kure Is
+KH7C 	Hawaii
 KH8 	American Samoa
 KH9 	Wake Is
 KL 	Alaska
+KL7SK   United States
 KP1 	Navassa Is
 KP2 	Virgin Is
 KP3 	Puerto Rico
@@ -721,6 +727,7 @@ OQ 	Belgium
 OR 	Belgium
 OS 	Belgium
 OT 	Belgium
+OV 	Denmark
 OX 	Greenland
 OY 	Faroe Is
 OZ 	Denmark
@@ -834,9 +841,10 @@ R3 	European Russia
 R4 	European Russia
 R5 	European Russia
 R6 	European Russia
-R7 	Asiatic Russia
+R7 	Russia
 R8 	Asiatic Russia
 R9 	Asiatic Russia
+R9CQ 	Russia
 RA0 	Asiatic Russia
 RA1 	European Russia
 RA2F	Kaliningrad
@@ -845,7 +853,7 @@ RA3 	European Russia
 RA4 	European Russia
 RA5 	European Russia
 RA6 	European Russia
-RA7 	Asiatic Russia
+RA7 	Russia
 RA8 	Asiatic Russia
 RA9 	Asiatic Russia
 RB0 	Asiatic Russia
@@ -856,18 +864,19 @@ RB3 	European Russia
 RB4 	European Russia
 RB5 	European Russia
 RB6 	European Russia
-RB7 	Asiatic Russia
+RB7 	Russia
 RB8 	Asiatic Russia
 RB9 	Asiatic Russia
 RC0 	Asiatic Russia
 RC1 	European Russia
 RC2F	Kaliningrad
 RC2K	Kaliningrad
+RC2P	Russia
 RC3 	European Russia
 RC4 	European Russia
 RC5 	European Russia
 RC6 	European Russia
-RC7 	Asiatic Russia
+RC7 	Russia
 RC8 	Asiatic Russia
 RC9 	Asiatic Russia
 RD0 	Asiatic Russia
@@ -878,7 +887,7 @@ RD3 	European Russia
 RD4 	European Russia
 RD5 	European Russia
 RD6 	European Russia
-RD7 	Asiatic Russia
+RD7 	Russia
 RD8 	Asiatic Russia
 RD9 	Asiatic Russia
 RE0 	Asiatic Russia
@@ -889,7 +898,7 @@ RE3 	European Russia
 RE4 	European Russia
 RE5 	European Russia
 RE6 	European Russia
-RE7 	Asiatic Russia
+RE7 	Russia
 RE8 	Asiatic Russia
 RE9 	Asiatic Russia
 RF0 	Asiatic Russia
@@ -900,7 +909,7 @@ RF3 	European Russia
 RF4 	European Russia
 RF5 	European Russia
 RF6 	European Russia
-RF7 	Asiatic Russia
+RF7 	Russia
 RF8 	Asiatic Russia
 RF9 	Asiatic Russia
 RG1 	European Russia
@@ -910,7 +919,7 @@ RG3 	European Russia
 RG4 	European Russia
 RG5 	European Russia
 RG6 	European Russia
-RG7 	Asiatic Russia
+RG7 	Russia
 RG8 	Asiatic Russia
 RG9 	Asiatic Russia
 RH0 	Asiatic Russia
@@ -921,19 +930,20 @@ RH3 	European Russia
 RH4 	European Russia
 RH5 	European Russia
 RH6 	European Russia
-RH7 	Asiatic Russia
+RH7 	Russia
 RH8 	Asiatic Russia
 RH9 	Asiatic Russia
 RI0 	Asiatic Russia
 RI1 	European Russia
 RI1AN   Antarctica
+RI1ANO  South Shetland Islands
 RI2F	Kaliningrad
 RI2K	Kaliningrad
 RI3 	European Russia
 RI4 	European Russia
 RI5 	European Russia
 RI6 	European Russia
-RI7 	Asiatic Russia
+RI7 	Russia
 RI8 	Asiatic Russia
 RI9 	Asiatic Russia
 RJ0 	Asiatic Russia
@@ -944,18 +954,19 @@ RJ3 	European Russia
 RJ4 	European Russia
 RJ5 	European Russia
 RJ6 	European Russia
-RJ7 	Asiatic Russia
+RJ7 	Russia
 RJ8 	Asiatic Russia
 RJ9 	Asiatic Russia
 RK0 	Asiatic Russia
 RK1 	European Russia
 RK2F	Kaliningrad
 RK2K	Kaliningrad
+RK2Y	Russia
 RK3 	European Russia
 RK4 	European Russia
 RK5 	European Russia
 RK6 	European Russia
-RK7 	Asiatic Russia
+RK7 	Russia
 RK8 	Asiatic Russia
 RK9 	Asiatic Russia
 RL0 	Asiatic Russia
@@ -966,18 +977,19 @@ RL3 	European Russia
 RL4 	European Russia
 RL5 	European Russia
 RL6 	European Russia
-RL7 	Asiatic Russia
+RL7 	Russia
 RL8 	Asiatic Russia
 RL9 	Asiatic Russia
 RM0 	Asiatic Russia
 RM1 	European Russia
+RM2 	European Russia
 RM2F	Kaliningrad
 RM2K	Kaliningrad
 RM3 	European Russia
 RM4 	European Russia
 RM5 	European Russia
 RM6 	European Russia
-RM7 	Asiatic Russia
+RM7 	Russia
 RM8 	Asiatic Russia
 RM9 	Asiatic Russia
 RN0 	Asiatic Russia
@@ -989,7 +1001,7 @@ RN3 	European Russia
 RN4 	European Russia
 RN5 	European Russia
 RN6 	European Russia
-RN7 	Asiatic Russia
+RN7 	Russia
 RN8 	Asiatic Russia
 RN9 	Asiatic Russia
 RO0 	Asiatic Russia
@@ -1000,7 +1012,7 @@ RO3 	European Russia
 RO4 	European Russia
 RO5 	European Russia
 RO6 	European Russia
-RO7 	Asiatic Russia
+RO7 	Russia
 RO8 	Asiatic Russia
 RO9 	Asiatic Russia
 RP0 	Asiatic Russia
@@ -1011,7 +1023,7 @@ RP3 	European Russia
 RP4 	European Russia
 RP5 	European Russia
 RP6 	European Russia
-RP7 	Asiatic Russia
+RP7 	Russia
 RP8 	Asiatic Russia
 RP9 	Asiatic Russia
 RQ0 	Asiatic Russia
@@ -1022,7 +1034,7 @@ RQ3 	European Russia
 RQ4 	European Russia
 RQ5 	European Russia
 RQ6 	European Russia
-RQ7 	Asiatic Russia
+RQ7 	Russia
 RQ8 	Asiatic Russia
 RQ9 	Asiatic Russia
 RR0 	Asiatic Russia
@@ -1033,7 +1045,7 @@ RR3 	European Russia
 RR4 	European Russia
 RR5 	European Russia
 RR6 	European Russia
-RR7 	Asiatic Russia
+RR7 	Russia
 RR8 	Asiatic Russia
 RR9 	Asiatic Russia
 RS0 	Asiatic Russia
@@ -1044,7 +1056,7 @@ RS3     European Russia
 RS4     European Russia
 RS5 	European Russia
 RS6 	European Russia
-RS7 	Asiatic Russia
+RS7 	Russia
 RS8 	Asiatic Russia
 RS9 	Asiatic Russia
 RT0 	Asiatic Russia
@@ -1055,7 +1067,7 @@ RT3 	European Russia
 RT4 	European Russia
 RT5 	European Russia
 RT6 	European Russia
-RT7 	Asiatic Russia
+RT7 	Russia
 RT8 	Asiatic Russia
 RT9 	Asiatic Russia
 RU0 	Asiatic Russia
@@ -1066,7 +1078,7 @@ RU3 	European Russia
 RU4 	European Russia
 RU5 	European Russia
 RU6 	European Russia
-RU7 	Asiatic Russia
+RU7 	Russia
 RU8 	Asiatic Russia
 RU9 	Asiatic Russia
 RV0 	Asiatic Russia
@@ -1077,7 +1089,7 @@ RV3 	European Russia
 RV4 	European Russia
 RV5 	European Russia
 RV6 	European Russia
-RV7 	Asiatic Russia
+RV7 	Russia
 RV8 	Asiatic Russia
 RV9 	Asiatic Russia
 RW0 	Asiatic Russia
@@ -1088,7 +1100,7 @@ RW3 	European Russia
 RW4 	European Russia
 RW5 	European Russia
 RW6 	European Russia
-RW7 	Asiatic Russia
+RW7 	Russia
 RW8 	Asiatic Russia
 RW9 	Asiatic Russia
 RX0 	Asiatic Russia
@@ -1099,7 +1111,7 @@ RX3 	European Russia
 RX4 	European Russia
 RX5 	European Russia
 RX6 	European Russia
-RX7 	Asiatic Russia
+RX7 	Russia
 RX8 	Asiatic Russia
 RX9 	Asiatic Russia
 RY0 	Asiatic Russia
@@ -1110,7 +1122,7 @@ RY3 	European Russia
 RY4 	European Russia
 RY5 	European Russia
 RY6 	European Russia
-RY7 	Asiatic Russia
+RY7 	Russia
 RY8 	Asiatic Russia
 RY9 	Asiatic Russia
 RZ0 	Asiatic Russia
@@ -1121,7 +1133,7 @@ RZ3 	European Russia
 RZ4 	European Russia
 RZ5 	European Russia
 RZ6 	European Russia
-RZ7 	Asiatic Russia
+RZ7 	Russia
 RZ8 	Asiatic Russia
 RZ9 	Asiatic Russia
 S0 	Western Sahara
@@ -1134,6 +1146,7 @@ S8 	South Africa
 S9 	Sao Tome
 SA 	Sweden
 SE 	Sweden
+SG 	Sweden
 SI 	Sweden
 SJ 	Sweden
 SK 	Sweden
@@ -1185,7 +1198,7 @@ TI9 	Cocos Is
 TJ 	Cameroon
 TK 	Corsica
 TL 	Central Africa Rep
-TM 	France Special
+TM 	France
 This is a generic special call French prefix. Issued for 2 weeks
 maximum. Check QSL Routes at URL: Page2.html
 TN 	Congo
@@ -1212,7 +1225,6 @@ U3 	European Russia
 U4 	European Russia
 U5 	Ukraine
 U6 	European Russia
-U7 	Asiatic Russia
 U8 	Asiatic Russia
 U9 	Asiatic Russia
 UA      Russia
@@ -1220,6 +1232,8 @@ UA0 	Asiatic Russia
 UA2F	Kaliningrad
 UA2K	Kaliningrad
 UA9 	Asiatic Russia
+UA9FFV 	Russia
+UA9FBC 	Russia
 UB0 	Asiatic Russia
 UB1 	European Russia
 UB2F	Kaliningrad
@@ -1228,7 +1242,7 @@ UB3 	European Russia
 UB4 	European Russia
 UB5 	European Russia
 UB6 	European Russia
-UB7 	Asiatic Russia
+UB7 	Russia
 UB8 	Asiatic Russia
 UB9 	Asiatic Russia
 UC0 	Asiatic Russia
@@ -1239,7 +1253,7 @@ UC3 	European Russia
 UC4 	European Russia
 UC5 	European Russia
 UC6 	European Russia
-UC7 	Asiatic Russia
+UC7 	Russia
 UC8 	Asiatic Russia
 UC9 	Asiatic Russia
 UD0 	Asiatic Russia
@@ -1250,7 +1264,7 @@ UD3 	European Russia
 UD4 	European Russia
 UD5 	European Russia
 UD6 	European Russia
-UD7 	Asiatic Russia
+UD7 	Russia
 UD8 	Asiatic Russia
 UD9 	Asiatic Russia
 UE0 	Asiatic Russia
@@ -1261,7 +1275,7 @@ UE3 	European Russia
 UE4 	European Russia
 UE5 	European Russia
 UE6 	European Russia
-UE7 	Asiatic Russia
+UE7 	Russia
 UE8 	Asiatic Russia
 UE9 	Asiatic Russia
 UF0 	Asiatic Russia
@@ -1272,7 +1286,7 @@ UF3 	European Russia
 UF4 	European Russia
 UF5 	European Russia
 UF6 	European Russia
-UF7 	Asiatic Russia
+UF7 	Russia
 UF8 	Asiatic Russia
 UF9 	Asiatic Russia
 UG1 	European Russia
@@ -1288,7 +1302,7 @@ UH3 	European Russia
 UH4 	European Russia
 UH5 	European Russia
 UH6 	European Russia
-UH7 	Asiatic Russia
+UH7 	Russia
 UH8 	Asiatic Russia
 UH9 	Asiatic Russia
 UI0 	Asiatic Russia
@@ -1299,7 +1313,7 @@ UI3 	European Russia
 UI4 	European Russia
 UI5 	European Russia
 UI6 	European Russia
-UI7 	Asiatic Russia
+UI7 	Russia
 UI8 	Asiatic Russia
 UI9 	Asiatic Russia
 UJ 	Uzbekistan
@@ -1397,6 +1411,7 @@ VP2V 	Brit Virg Isle
 VP5 	Turks Caicos
 VP6 	Pitcairn (New)
  Pitcairn Island Home Page with New VP6 Ham Calls and Skeds -- A Must See
+VP8     South Shetland Islands
 VP8/F 	Falkland Is
 VP8/G 	So Georgia
 VP8/O 	So Orkney
@@ -1504,14 +1519,14 @@ YS 	El Salvador
 YT 	Yugoslavia
 YT1 	Yugoslavia
 YT4 	Bosnia Herzegovina
-YT5 	Macedonia
+YT5 	Serbia
 YT6 	Yugoslavia
 YT7 	Yugoslavia
 YT8 	Yugoslavia
 YU 	Yugoslavia
 YU1 	Yugoslavia
 YU4 	Bosnia Herzegovina
-YU5 	Macedonia
+YU5 	Serbia
 YU6 	Yugoslavia
 YU7 	Yugoslavia
 YU8 	Yugoslavia
@@ -1523,7 +1538,7 @@ YX0 	Aves Is
 YY 	Venezuela
 YZ 	Yugoslavia
 YZ4 	Bosnia Herzegovina
-YZ5 	Macedonia
+YZ5 	Serbia
 Z2 	Zimbabwe
 Z3 	Macedonia
 ZA 	Albania
@@ -1553,8 +1568,6 @@ ZR 	So Africa
 ZR8     Marion Is
 ZR7     Antarctica
 ZS 	So Africa
-ZS2 	Marion Is
-ZS2DK 	So Africa
 ZS7 	Antarctica
 ZS8 	Marion Is
 ZS9 	Walvis Bay
