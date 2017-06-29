@@ -369,7 +369,7 @@ class WWV:
             i += self.lorate
 
         # sort the seconds, highest sync correlation first.
-        ranked = sorted(range(0, len(secs)), key = lambda i : -secs[i])
+        ranked = sorted(list(range(0, len(secs))), key = lambda i : -secs[i])
 
         # accumulate [ Decode, votes ] pairs,
         # to choose the best second offset.
@@ -394,7 +394,7 @@ class WWV:
                 fr = d.cardtime - int(d.cardtime)
                 frs = "%.3f" % (fr)
                 frs = frs[1:] # drop leading zero
-                print "%02d:%02d:%02d%s %s %d" % (ts.tm_hour, ts.tm_min, ts.tm_sec, frs, d.s(), votes)
+                print("%02d:%02d:%02d%s %s %d" % (ts.tm_hour, ts.tm_min, ts.tm_sec, frs, d.s(), votes))
             sys.stdout.flush()
 
     # s is strength of tone, self.lorate samples per second,
@@ -412,8 +412,8 @@ class WWV:
             d = self.decode(bits)
             d.strengths = strengths
             if False and d.year == 2017 and d.day_of_year == 41:
-                print d.s()
-                print strengths
+                print(d.s())
+                print(strengths)
                 sys.exit(1)
 
             # we want to vote on individual bits, since if there
@@ -639,7 +639,7 @@ def onebench(filename, year0, yearday0, hour0, minute0, minutes, verbose):
         secgood.append(ngood)
 
     if verbose:
-        print "%s score %d of %d" % (filename, numpy.max(secgood), minutes)
+        print("%s score %d of %d" % (filename, numpy.max(secgood), minutes))
     return numpy.max(secgood)
 
 def optimize():
@@ -671,8 +671,8 @@ def optimize():
                 xglob = ""
             else:
                 xglob = "global %s ; " % (v[0])
-            exec "%sold = %s" % (xglob, v[0])
-            exec "%s%s = %s" % (xglob, v[0], val)
+            exec("%sold = %s" % (xglob, v[0]))
+            exec("%s%s = %s" % (xglob, v[0], val))
 
             #sys.stdout.write("# ")
             #for vx in vars:
@@ -688,7 +688,7 @@ def optimize():
             sc += onebench("wwvx9.wav", 2017, 43, 23, 33, 51, False)
             sc += onebench("wwvx10.wav", 2017, 44, 9, 19, 54, False)
 
-            exec "%s%s = old" % (xglob, v[0])
+            exec("%s%s = old" % (xglob, v[0]))
             sys.stdout.write("%s=%s : " % (v[0], val))
             sys.stdout.write("%d\n" % (sc))
             sys.stdout.flush()
@@ -707,7 +707,7 @@ def main():
         total += onebench("wwvx8.wav", 2017, 43, 22, 15, 72, True)
         total += onebench("wwvx9.wav", 2017, 43, 23, 33, 51, True)
         total += onebench("wwvx10.wav", 2017, 44, 9, 19, 54, True)
-        print "%d total" % (total)
+        print("%d total" % (total))
         sys.exit(0)
 
     parser = weakargs.stdparse('Decode WWV.')
