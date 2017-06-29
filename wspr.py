@@ -1047,8 +1047,6 @@ class WSPR:
 
         softsyms.append( [ logp0, logp1, v0, v1 ] )
 
-    sys.exit(1)
-
     # un-interleave softsyms[], by bit-reversal of index.
     p = 0
     ss1 = [None]*162
