@@ -7,7 +7,11 @@
 # e.g. weakcfg.get("wsprmon", "mycall") -> None or "W1XXX"
 #
 
-import ConfigParser
+try:
+  import configparser
+except:
+  from six.moves import configparser
+import threading
 import numpy
 import scipy
 import scipy.signal
@@ -15,10 +19,9 @@ import scipy.fftpack
 import wave
 import time
 import sys
-import thread
 
 def cfg(program, key):
-    cfg = ConfigParser.SafeConfigParser()
+    cfg = configparser.SafeConfigParser()
     cfg.read(['weak-local.cfg', 'weak.cfg'])
 
     if cfg.has_option(program, key):
@@ -121,22 +124,22 @@ def freq_shift_hack_iter(x, hza, dt):
 # pure sin tone, n samples long.
 def sintone(rate, hz, n):
     x = numpy.linspace(0, 2 * hz * (n / float(rate)) * numpy.pi, n,
-                       dtype=numpy.float32)
-    y = numpy.sin(x)
-    return y
+                       endpoint=False, dtype=numpy.float32)
+    tone = numpy.sin(x)
+    return tone
 
 # pure cos tone, n samples long.
 def costone(rate, hz, n):
     x = numpy.linspace(0, 2 * hz * (n / float(rate)) * numpy.pi, n,
-                       dtype=numpy.float32)
-    y = numpy.cos(x)
-    return y
+                       endpoint=False, dtype=numpy.float32)
+    tone = numpy.cos(x)
+    return tone
 
 # parameter
 fos_threshold = 0.5
 
 # cache
-fos_mu = thread.allocate_lock()
+fos_mu = threading.Lock()
 fos_hz = None
 fos_fft = None
 fos_n = None
@@ -242,6 +245,9 @@ def freq_from_fft(sig, rate, minf, maxf):
     if i < 1 or i+1 >= len(fa) or fa[i] <= 0.0:
         return None
 
+    if fa[i-1] == 0.0 or fa[i] == 0.0 or fa[i+1] == 0.0:
+        return None
+
     xp = parabolic(numpy.log(fa[i-1:i+2]), 1) # interpolate
     if xp == None:
         return None
@@ -287,6 +293,10 @@ def resample(buf, from_rate, to_rate):
     # 11025 -> 315, for wwvmon.py.
     if from_rate == to_rate * 35:
         buf = buf[0::35]
+        return buf
+
+    if from_rate == to_rate * 64:
+        buf = buf[0::64]
         return buf
 
     if from_rate == to_rate:
@@ -336,8 +346,6 @@ class Resampler:
         # rates correct.
         self.nin = 0
         self.nout = 0
-
-        print "Resampler(%d, %d)" % (from_rate, to_rate)
 
     def resample(self, buf):
         # if resample() uses FFT, then handing it huge chunks is
@@ -593,3 +601,29 @@ def gray2bin(x, nb):
   b = [bits[0]]
   for nextb in bits[1:]: b.append(b[-1] ^ nextb)
   return bin2int(b)
+
+# generate coherent FSK.
+# symbols[] are the symbols to encode.
+# hza[0] is start hz of base tone, hza[1] is end hz,
+#   can be different if drift.
+# spacing is the space in hz between FSK tones.
+# rate is samples per second.
+# symsamples is samples per symbol.
+def fsk(symbols, hza, spacing, rate, symsamples):
+    # compute frequency for each symbol.
+    symhz = numpy.zeros(len(symbols))
+    for bi in range(0, len(symbols)):
+        #base = self.sync_hz(hza, bi)
+        base_hz = hza[0] + (hza[1] - hza[0]) * (bi / float(len(symbols)))
+        fr = base_hz + (symbols[bi] * spacing)
+        symhz[bi] = fr
+
+    # frequency for each sample.
+    hzv = numpy.repeat(symhz, symsamples)
+
+    # cumulative angle.
+    angles = numpy.cumsum(2.0 * numpy.pi / (float(rate) / hzv))
+
+    a = numpy.sin(angles)
+
+    return a
