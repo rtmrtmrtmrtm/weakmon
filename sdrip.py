@@ -19,7 +19,6 @@ import os
 import numpy
 import scipy
 import scipy.signal
-import thread
 import threading
 import time
 import struct
@@ -81,7 +80,7 @@ def hx(s):
     buf += "%02x " % (ord(s[i]))
   return buf
 
-mu = thread.allocate_lock()
+mu = threading.Lock()
 
 #
 # if already connected, return existing SDRIP,
@@ -103,7 +102,7 @@ class SDRIP:
     # ipaddr is SDR-IP's IP address e.g. "192.168.3.123"
     self.mode = "usb"
     self.ipaddr = ipaddr
-    self.mu = thread.allocate_lock()
+    self.mu = threading.Lock()
 
     self.rate = None
     self.frequency = None
@@ -186,7 +185,7 @@ class SDRIP:
       # and appending packets to packets[].
 
       self.packets = [ ]
-      self.packets_mu = thread.allocate_lock()
+      self.packets_mu = threading.Lock()
 
       th = threading.Thread(target=lambda : self.reader1())
       th.daemon = True
@@ -202,7 +201,10 @@ class SDRIP:
           self.packets_mu.release()
 
           if len(ppp) < 1:
-              time.sleep(0.005) # we expect 100 pkts/second
+              # we expect 100 pkts/second
+              # but OSX seems to limit a process to 150 wakeups/second!
+              # time.sleep(0.005)
+              time.sleep(0.01)
 
           for pkt in ppp:
               try:
@@ -303,21 +305,21 @@ class SDRIP:
     return ret
 
   def print_setup(self):
-      print "freq 0: %d" % (self.getfreq(0)) # 32770 if down-converting
-      print "name: %s" % (self.getname())
-      print "serial: %s" % (self.getserial())
-      print "interface: %d" % (self.getinterface())
+      print(("freq 0: %d" % (self.getfreq(0)))) # 32770 if down-converting
+      print(("name: %s" % (self.getname())))
+      print(("serial: %s" % (self.getserial())))
+      print(("interface: %d" % (self.getinterface())))
       # print "boot version: %s" % (self.getversion(0))
       # print "application firmware version: %s" % (self.getversion(1))
       # print "hardware version: %s" % (self.getversion(2))
       # print "FPGA config: %s" % (self.getversion(3))
-      print "rate: %d" % (self.getrate())
-      print "freq 0: %d" % (self.getfreq(0)) # 32770 if down-converting
-      print "A/D mode: %s" % (self.getad(0))
-      print "filter: %d" % (self.getfilter(0))
-      print "gain: %d" % (self.getgain(0))
-      print "fpga: %s" % (self.getfpga())
-      print "scale: %s" % (self.getscale(0))
+      print(("rate: %d" % (self.getrate())))
+      print(("freq 0: %d" % (self.getfreq(0)))) # 32770 if down-converting
+      print(("A/D mode: %s" % (self.getad(0))))
+      print(("filter: %d" % (self.getfilter(0))))
+      print(("gain: %d" % (self.getgain(0))))
+      print(("fpga: %s" % (self.getfpga())))
+      print(("scale: %s" % (self.getscale(0))))
       # print "downgain: %s" % (self.getdowngain())
 
   # set Frequency

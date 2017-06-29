@@ -8,16 +8,16 @@
 
 import ctypes
 import time
-import thread
 import sys
 import numpy
+import threading
 
 #
 # if already connected, return existing SDRplay,
 # otherwise a new one.
 #
 the_sdrplay = None
-mu = thread.allocate_lock()
+mu = threading.Lock()
 def open(dev):
     global the_sdrplay, mu
     mu.acquire()
@@ -39,7 +39,7 @@ class SDRplay:
         self.cb_bufs = [ ]
         self.cb_seq = None # next sample num expected by callback
         self.cb_time = time.time() # UNIX time of end of cb_bufs
-        self.cb_bufs_mu = thread.allocate_lock()
+        self.cb_bufs_mu = threading.Lock()
 
         # on mac, this must exist: /usr/local/lib/libusb-1.0.0.dylib
         # on linux, setenv LD_LIBRARY_PATH /usr/local/lib
@@ -56,7 +56,7 @@ class SDRplay:
         for name in names:
             try:
                 self.lib = ctypes.cdll.LoadLibrary(name)
-                print "sdrplay: loaded API from %s" % (name)
+                print("sdrplay: loaded API from %s" % (name))
                 break
             except:
                 pass
@@ -184,8 +184,8 @@ class SDRplay:
             self.cb_time = time.time()
         
         if self.cb_seq != None and self.cb_seq != firstSampleNum:
-            print "SDRplay callback missed %d samples; %d %d %d" % (firstSampleNum - self.cb_seq,
-              self.cb_seq, firstSampleNum, numSamples)
+            print("SDRplay callback missed %d samples; %d %d %d" % (firstSampleNum - self.cb_seq,
+              self.cb_seq, firstSampleNum, numSamples))
 
         self.cb_bufs.append([ ii, qq ])
         self.cb_seq = (firstSampleNum + numSamples) & 0xffff
@@ -241,7 +241,7 @@ class SDRplay:
         num = firstSampleNum.value
         num = num & 0xffff
         if self.expect != None and num != self.expect:
-            print "%d vs %d -- gap %d" % (self.expect, num, num - self.expect)
+            print("%d vs %d -- gap %d" % (self.expect, num, num - self.expect))
 
         self.expect = (num + self.samplesPerPacket) & 0xffff
 
