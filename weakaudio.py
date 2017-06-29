@@ -9,7 +9,6 @@
 import sys
 import numpy
 import time
-import thread
 import threading
 import os
 
@@ -115,7 +114,7 @@ class Stream:
 
         self.cardbuf = numpy.array([])
         self.cardtime = time.time() # UNIX time just after last sample in cardbuf
-        self.cardlock = thread.allocate_lock()
+        self.cardlock = threading.Lock()
 
         if self.use_oss:
             self.oss_open()
@@ -233,7 +232,7 @@ class Stream:
             time.sleep(1)
             [ buf, junk ] = self.read()
             if len(buf) > 0:
-                print "avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf))
+                print("avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf)))
 
 class SDRIP:
     def __init__(self, ip, rate):
@@ -256,7 +255,7 @@ class SDRIP:
         self.cardtime = time.time() # UNIX time just after last sample in bufbuf
 
         self.bufbuf = [ ]
-        self.cardlock = thread.allocate_lock()
+        self.cardlock = threading.Lock()
         self.th = threading.Thread(target=lambda : self.sdr_thread())
         self.th.daemon = True
         self.th.start()
@@ -316,7 +315,7 @@ class SDRIP:
             time.sleep(1)
             [ buf, junk ] = self.read()
             if len(buf) > 0:
-                print "avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf))
+                print("avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf)))
 
 class SDRIQ:
     def __init__(self, ip, rate):
@@ -328,7 +327,7 @@ class SDRIQ:
 
         self.bufbuf = [ ]
         self.cardtime = time.time() # UNIX time just after last sample in bufbuf
-        self.cardlock = thread.allocate_lock()
+        self.cardlock = threading.Lock()
 
         self.resampler = weakutil.Resampler(self.sdrrate, self.rate)
 
@@ -386,7 +385,7 @@ class SDRIQ:
             time.sleep(1)
             [ buf, junk ] = self.read()
             if len(buf) > 0:
-                print "avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf))
+                print("avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf)))
 
 class EB200:
     def __init__(self, ip, rate):
@@ -395,7 +394,7 @@ class EB200:
 
         self.rate = rate
 
-        self.time_mu = thread.allocate_lock()
+        self.time_mu = threading.Lock()
         self.cardtime = time.time() # UNIX time just after last sample in bufbuf
 
         self.sdr = eb200.open(ip)
@@ -424,7 +423,7 @@ class EB200:
             time.sleep(1)
             [ buf, junk ] = self.read()
             if len(buf) > 0:
-                print "avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf))
+                print("avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf)))
 
 class SDRplay:
     def __init__(self, dev, rate):
@@ -455,7 +454,7 @@ class SDRplay:
             time.sleep(1)
             [ buf, junk ] = self.read()
             if len(buf) > 0:
-                print "avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf))
+                print("avg=%.0f max=%.0f" % (numpy.mean(abs(buf)), numpy.max(buf)))
 
 #
 # for Usage(), print out a list of audio cards
