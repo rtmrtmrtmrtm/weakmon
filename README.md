@@ -13,6 +13,7 @@ The software depends on a few packages. Here's how to install them
 on Ubuntu Linux:
 ```
   sudo apt-get install python2.7
+  sudo apt-get install python-six
   sudo apt-get install gcc-5
   sudo apt-get install python-numpy
   sudo apt-get install python-scipy
