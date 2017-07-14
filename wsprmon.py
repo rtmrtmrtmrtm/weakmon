@@ -158,19 +158,16 @@ class WSPRMon:
             while mi < len(msgs):
                 msg = msgs[mi]
                 mi += 1
-                # msg is [ minute, hz, msg, decode_time, snr, dt, drift ]
-                # offset in seconds.
-                # drift in hz/minute.
-                min = msg[0]
-                if not (min in self.minband):
+                # msg is a wspr.Decode.
+                if not (msg.minute in self.minband):
                     continue
-                band = self.minband[min]
-                pp = self.parse(msg[2])
+                band = self.minband[msg.minute]
+                pp = self.parse(msg.msg)
                 if pp == None:
                     continue
                 [ call, grid, dbm ] = pp
 
-                when = self.r.start_time + 60*min
+                when = self.r.start_time + 60*msg.minute
                 gm = time.gmtime(when)
 
                 url = "http://wsprnet.org/post?"
@@ -180,10 +177,10 @@ class WSPRMon:
                 url += "rqrg=%.6f&" % (b2f[band]) # my frequency, mHz
                 url += "date=%02d%02d%02d&" % (gm.tm_year-2000, gm.tm_mon, gm.tm_mday)
                 url += "time=%02d%02d&" % (gm.tm_hour, gm.tm_min)
-                url += "sig=%.0f&" % (msg[4])
-                url += "dt=%.1f&" % (msg[5])
-                url += "drift=%.1f&" % (msg[6])
-                url += "tqrg=%.6f&" % (b2f[band] + msg[1]/1000000.0)
+                url += "sig=%.0f&" % (msg.snr)
+                url += "dt=%.1f&" % (msg.dt)
+                url += "drift=%.1f&" % (msg.drift)
+                url += "tqrg=%.6f&" % (b2f[band] + msg.hz()/1000000.0)
                 url += "tcall=%s&" % (call)
                 url += "tgrid=%s&" % (grid)
                 url += "dbm=%s&" % (dbm)
@@ -196,16 +193,16 @@ class WSPRMon:
                         pass
                     req.close()
                 except:
-                    print("wsprnet GET failed for %s" % (msg[2]))
+                    print("wsprnet GET failed for %s" % (msg.msg))
                     pass
 
-    # process messages from *two* cycles ago, i.e. the latest
-    # cycle for which both reception and two minutes of
+    # process messages from one cycle ago, i.e. the latest
+    # cycle for which both reception and 
     # decoding have completed.
     def readall(self):
         now = time.time()
         nowmin = self.r.minute(now)
-        for min in range(max(0, nowmin-6), nowmin-2, 2):
+        for min in range(max(0, nowmin-6), nowmin, 2):
             if min in self.mindone:
                 continue
             self.mindone[min] = True
@@ -216,11 +213,11 @@ class WSPRMon:
 
             bandcount = 0
             msgs = self.r.get_msgs()
-            # each msg is [ minute, hz, msg, decode_time, snr, dt, drift ]
+            # each msg is a wspr.Decode.
             for m in msgs[len(msgs)-50:]:
-                if m[0] == min:
+                if m.minute == min:
                     bandcount += 1
-                    self.log(self.r.start_time + 60*min, band, m[1], m[2], m[4], m[5], m[6])
+                    self.log(self.r.start_time + 60*min, band, m.hz(), m.msg, m.snr, m.dt, m.drift)
             x = self.bandinfo.get(band, 0)
             self.bandinfo[band] = 0.5 * x + 0.5 * bandcount
 
