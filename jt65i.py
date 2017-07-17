@@ -4,15 +4,23 @@
 # interactive JT65.
 # runs in a Linux or Mac terminal window.
 # user can respond to CQs, but not send CQ.
+# optional automatic band switching when not in QSO.
 #
-# I use jt65.pyi with a K3S via USB:
-# ./jt65i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -band 20
+# I use jt65.pyi with a K3S via USB, automatically switching
+# among bands:
+# ./jt65i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23
 #
-# If your radio is already set to e.g. 30 meters:
+# To switch among just a few bands:
+# ./jt65i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -bands "30 20 17"
+#
+# To use on a single band without CAT (radio must be set up
+# correctly already):
 # ./jt65i.py -card 2 0 -out 1 -band 30
 #
 # Select a CQ to reply to by typing the upper-case letter displayed
 # next to the CQ. jt65i.py automates the rest of the exchange.
+#
+# Robert Morris, AB1HL
 #
 
 #import fake65 as jt65
@@ -32,8 +40,14 @@ import weakaudio
 import pskreport
 import weakutil
 import weakargs
-import gc
 import tty
+import fcntl
+import termios
+import struct
+
+# automatically switch only among these bands.
+# auto_bands = [ "160", "80", "60", "40", "30", "20", "17", "15", "12", "10" ]
+auto_bands = [ "40", "30", "20", "17" ]
 
 b2f = { "160" : 1.838, "80" : 3.576, "60" : 5.357, "40" : 7.076,
         "30" : 10.138, "20" : 14.076,
@@ -158,6 +172,11 @@ def read_lotw():
     f.close()
     return d
 
+# returns [ rows, columns ] e.g. [ 24, 80 ]
+# works on FreeBSD, Linux, and OSX.
+def terminal_size(fd):
+    cr = struct.unpack('hh', fcntl.ioctl(fd, termios.TIOCGWINSZ, '1234'))
+    return [ int(cr[0]), int(cr[1]) ]
 
 class JT65I:
     def __init__(self, outcard, descs, cat, oneband):
@@ -182,9 +201,12 @@ class JT65I:
         else:
             self.cat = None
 
-        # for each band, count of received signals last time we
-        # looked at it, to guess most profitable band.
+        # self.bandinfo[band] is an array of [ minute, count ].
+        # used to pick which band to listen to.
         self.bandinfo = { }
+
+        # for each minute, for each card index, what band?
+        self.minute_bands = { }
 
         self.prefixes = load_prefixes()
 
@@ -226,26 +248,23 @@ class JT65I:
     # read latest msgs from all cards,
     # append to self.log[].
     def decode_new(self):
-        minute = self.r[0].minute(time.time())
+        minute = self.minute(time.time())
         oindex = len(self.log)
 
         # for each card, new msgs
         for ci in range(0, len(self.r)):
-            bandcount = 0  # all msgs
-            bandcount1 = 0 # msgs with lowish reed-solomon error counts
             msgs = self.r[ci].get_msgs()
             # each msg is a jt65.Decode.
             for dec in msgs:
                 if self.r[ci].enabled:
                     dec.card = ci
-                    dec.band = self.bands[ci]
+                    dec.band = self.get_band(dec.minute, ci)
+                    assert dec.band != None
                     ak = dec.band + "-" + str(dec.minute) + "-" + dec.msg
                     if not ak in self.log_already:
                         self.log_already[ak] = True
                         self.log.append(dec)
-                        bandcount += 1
-                        if dec.nerrs < 25:
-                            bandcount1 += 1
+                        self.record_stat(dec)
 
         # append each msg to jt65-all.txt.
         # incorrectly omits some lines if a call transmits the same message
@@ -380,7 +399,7 @@ class JT65I:
     def wait59(self, suppress):
         while True:
             now = time.time()
-            if self.r[0].seconds_left(now) <= 0.3:
+            if self.seconds_left(now) <= 0.3:
                 msgs = [ ]
                 for dec in self.log[-30:]:
                     if dec.minute == self.minute(now):
@@ -442,16 +461,124 @@ class JT65I:
     def qso_receiving(self, band):
         pass
 
+    # what band was card ci tuned to during a particular minute?
+    # returns a string, e.g. "20", or None.
+    # returns info for most recent minute for which
+    # any bands were set.
+    def get_band(self, minute, ci):
+        if minute in self.minute_bands and ci in self.minute_bands[minute]:
+            return self.minute_bands[minute][ci]
+        if len(self.minute_bands) == 0:
+            return None
+        for m in range(minute, minute-60, -1):
+            if m in self.minute_bands:
+                return self.minute_bands[m].get(ci, None)
+        return None
+
+    def set_band(self, minute, ci, band):
+        if not minute in self.minute_bands:
+            self.minute_bands[minute] = { }
+        self.minute_bands[minute][ci] = band
+
+    # incorporate a reception into per-band counts.
+    def record_stat(self, dec):
+        if dec.nerrs >= 25:
+            return
+
+        # self.bandinfo[band] is an array of [ minute, count ]
+
+        if not dec.band in self.bandinfo:
+            self.bandinfo[dec.band] = [ ]
+
+        if len(self.bandinfo[dec.band]) == 0 or self.bandinfo[dec.band][-1][0] != dec.minute:
+            self.bandinfo[dec.band].append( [ dec.minute, 0 ] )
+
+        self.bandinfo[dec.band][-1][1] += 1
+
+    # return a list of bands to listen to.
+    def rankbands(self):
+        # for each band, count of recent receptions.
+        counts = { }
+        for band in self.bandinfo:
+            if len(self.bandinfo[band]) > 1:
+                counts[band] = (self.bandinfo[band][-1][1] + self.bandinfo[band][-2][1]) / 2.0
+            else:
+                counts[band] = self.bandinfo[band][-1][1]
+
+        # are we missing bandinfo stats for any bands?
+        missing = [ ]
+        for band in auto_bands:
+            if counts.get(band) == None:
+                missing.append(band)
+
+        # most profitable bands, highest count first.
+        best = sorted(auto_bands, key = lambda band : -counts.get(band, -1))
+
+        # always explore missing bands first.
+        if len(missing) >= len(self.r):
+            return missing[0:len(self.r)]
+
+        if len(missing) > 0:
+            return best[0:len(self.r)-len(missing)] + missing
+
+        ret = [ ]
+
+        # choose weighted by activity, but
+        # give a little weight even to dead bands.
+        c = copy.copy(counts)
+        for band in c:
+            if c[band] > 5.0:
+                # no band too high a weight
+                c[band] = 5.0
+        wsum = numpy.sum([ c[band] for band in c ])
+        wsum = max(wsum, 1.0)
+        wa = [ [ band, max(c[band], wsum*0.06*self.idleweight(band)) ] for band in c ]
+        ret = wchoice(wa, len(self.r))
+
+        return ret
+
+    def idleweight(self, band):
+        return 1.0
+
+    def choose_bands(self, minute):
+        if self.oneband != None:
+            bands = [ self.oneband ]
+        else:
+            bands = self.rankbands()
+            bands = bands[0:len(self.r)]
+
+        while len(bands) < len(self.r):
+            bands.append(bands[0])
+
+        for band in bands:
+            # trick rankbands() into counting each
+            # band as missing just once.
+            if not band in self.bandinfo:
+                self.bandinfo[band] = [ [ 0, 0 ] ]
+
+        for ci in range(0, len(self.r)):
+            self.set_band(minute, ci, bands[ci])
+
+        for ci in range(0, len(self.r)):
+            band = bands[ci]
+            if self.rcat[ci] != None:
+                self.rcat[ci].setf(ci, int(b2f[band] * 1000000.0))
+                self.rcat[ci].sync()
+
     # if the user has asked to respond to a CQ, do it.
     def one(self):
         self.dhiscall = None
 
-        # wait for 59th second, get this minute's decodes.
+        # wait for 59th second, get this minute's decodes,
+        # also wait for user to choose a CQ to respond to.
         msgs = self.wait59(False)
 
         if self.dwanted == None:
-            # user did not ask to respond.
-            time.sleep(2)
+            # user did not ask to respond to a CQ.
+            # switch radio to new band.
+            while self.second(time.time()) > 0.5:
+                time.sleep(0.2)
+            self.choose_bands(self.minute(time.time()))
             return
 
         cq = None
@@ -505,7 +632,7 @@ class JT65I:
             time.sleep(3)
 
             # wait for 59th second, look for AB1HL HISCALL -YY
-            while self.r[0].seconds_left(time.time()) > 0.3:
+            while self.seconds_left(time.time()) > 0.3:
                 if self.dwanted != None:
                     # user wants to switch to another CQ.
                     self.show_message("Terminating contact with %s." % (self.dhiscall))
@@ -620,7 +747,7 @@ class JT65I:
 
     # write audio samples to sound card for output.
     def tocard(self, x1):
-        if self.r[0].seconds_per_cycle < 60:
+        if self.cycle_length() < 60:
             # fake the send
             self.show_message("tocard() not actually sending.")
             time.sleep(4)
@@ -650,17 +777,17 @@ class JT65I:
         # XXX if after 1 second already, should start
         # right away at the appropriate place in x1.
         while True:
-            s = self.r[0].second(time.time())
+            s = self.second(time.time())
             if s >= 0.9 and s < 2:
                 break
-            lf = self.r[0].seconds_left(time.time())
+            lf = self.seconds_left(time.time())
             if lf > 2 and s > 2:
                 print("too late seconds=%.2f" % (s))
                 return
             time.sleep(0.1)
 
         f = open(self.allname, "a")
-        f.write("%s %s snd %6.1f %s\n" % (self.r[0].ts(time.time()), band, hz, msg))
+        f.write("%s %s snd %6.1f %s\n" % (self.ts(time.time()), band, hz, msg))
         f.close()
         
         self.dsending = True
@@ -682,7 +809,7 @@ class JT65I:
 
         freq = b2f[band]
 
-        ts = self.r[0].ts(time.time() - 90)
+        ts = self.ts(time.time() - 90)
         ts = re.sub(r':[0-9][0-9]$', '', ts) # delete seconds
 
         f = open(self.logname, "a")
@@ -853,9 +980,6 @@ class JT65I:
     def go(self):
         self.soundsetup()
 
-        assert self.oneband != None
-        self.bands = [ self.oneband ] * len(self.r)
-
         # buffer of keystrokes from user input.
         self.keybuf = ""
         self.keybuf_lock = threading.Lock()
@@ -874,13 +998,6 @@ class JT65I:
         th = threading.Thread(target=self.decode_loop)
         th.daemon = True
         th.start()
-
-        # wait until end of minute.
-        while True:
-            now = time.time()
-            if self.r[0].seconds_left(now) <= 1:
-                break
-            time.sleep(0.5)
 
         while True:
             self.one()
@@ -922,7 +1039,12 @@ class JT65I:
             self.display()
             time.sleep(1)
 
-    # HH:MM:SS UTC
+    # dd/mm/yy hh:mm:ss
+    def ts(self, t):
+        return self.r[0].ts(t)
+
+    # HH:MM:SS
+    # UTC
     def sts(self, t):
       gm = time.gmtime(t)
       return "%02d:%02d:%02d" % (
@@ -933,11 +1055,24 @@ class JT65I:
     # really integer cycle number.
     # t is UNIX time in seconds.
     def minute(self, t):
-        minute = self.r[0].minute(t)
-        return minute
+        return self.r[0].minute(t)
+
+    def second(self, t):
+        return self.r[0].second(t)
+
+    def seconds_left(self, t):
+        return self.r[0].seconds_left(t)
+
+    def cycle_length(self):
+        return self.r[0].cycle_length()
 
     # redraw display for user.
     def display(self):
+        now = time.time()
+        minute = self.minute(now)
+        [ rows, cols ] = terminal_size(1)
+        cols -= 1 # so that full-width line doesn't wrap.
+
         # clear the screen
         sys.stdout.write("\033[H") # home
         sys.stdout.write("\033[2J") # clear
@@ -947,13 +1082,22 @@ class JT65I:
             st = "Contacting: %s" % (self.dhiscall)
         else:
             st = "Contacting: ----"
+        
         if self.dsending:
-            txrx = "TX"
+            txrx = "%s TX" % (self.get_band(minute, 0))
         else:
-            txrx = "RX"
-        ts = "%s %s" % (txrx, self.sts(time.time()))
-        print "%-40.40s%40.40s" % (st, ts)
-        print "-" * 80
+            txrx = ""
+            for ci in range(0, len(self.r)):
+                txrx += "%s " % (self.get_band(minute, ci))
+            txrx += "RX"
+
+        ts = "%s %s" % (txrx, self.sts(now))
+        half1 = int(cols / 2)
+        half2 = half1
+        if half1+half2 == cols-1:
+            half1 += 1
+        print "%-*.*s%*.*s" % (half1, half1, st, half2, half2, ts)
+        print "-" * cols
 
         # recent msgs from this conversation
         conv_lines = 6
@@ -964,11 +1108,11 @@ class JT65I:
         while n < conv_lines:
             print
             n += 1
-        print "-" * 80
+        print "-" * cols
 
         # all recent msgs.
         # mark CQs.
-        all_lines = 24 - conv_lines - 5
+        all_lines = rows - conv_lines - 5
         cqi = 0
         cqcalls = { } # map A..Z to CQ'ing call, for user keystroke
         n = 0
@@ -979,7 +1123,7 @@ class JT65I:
             cqinfo = self.is_cq(dec.msg)
             if cqinfo != None:
                 call = cqinfo[0]
-                if dec.minute == self.minute(time.time()):
+                if dec.minute == minute:
                     # display a letter beside each fresh CQ,
                     # so user can select one with a keystroke.
                     cqch = chr(ord('A') + cqi)
@@ -992,12 +1136,12 @@ class JT65I:
                 entity = look_prefix(call, self.prefixes)
                 if entity == None:
                     entity = ""
-            print("%-3s %s %-20s %s" % (start, self.sts(dec.decode_time), dec.msg, entity))
+            print("%-3s %s %-3s %-20s %s" % (start, self.sts(dec.decode_time), dec.band, dec.msg, entity))
             n += 1
         while n < all_lines:
             print
             n += 1
-        print "-" * 80
+        print "-" * cols
 
         # one line of general message display.
         # "persist" seconds per message.
@@ -1005,13 +1149,13 @@ class JT65I:
             persist = 5
         else:
             persist = 10
-        if len(self.dmessages) > 0 and self.dmessages[0][0] != None and time.time()-self.dmessages[0][0] > persist:
+        if len(self.dmessages) > 0 and self.dmessages[0][0] != None and now-self.dmessages[0][0] > persist:
             self.dmessages = self.dmessages[1:]
         if len(self.dmessages) > 0:
             if self.dmessages[0][0] == None:
                 # remember when we first started displaying it,
                 # so we can erase it after "persist" seconds.
-                self.dmessages[0][0] = time.time()
+                self.dmessages[0][0] = now
             sys.stdout.write(self.dmessages[0][1])
 
         # look for a keystroke, which asks us to
@@ -1037,12 +1181,11 @@ class JT65I:
         sys.stdout.flush()
 
 def main():
-    #gc.set_debug(gc.DEBUG_STATS)
-    thv = gc.get_threshold()
-    gc.set_threshold(10*thv[0], 10*thv[1], 10*thv[2])
+    global auto_bands
 
     parser = weakargs.stdparse('JT65A.')
     parser.add_argument("-band")
+    parser.add_argument("-bands")
     parser.add_argument("-card2", nargs=2, metavar=('CARD', 'CHAN'))
     parser.add_argument("-card3", nargs=2, metavar=('CARD', 'CHAN'))
     parser.add_argument("-card4", nargs=2, metavar=('CARD', 'CHAN'))
@@ -1073,6 +1216,17 @@ def main():
       
     if args.cat == None and args.band == None:
         parser.error("jt65i needs either -cat or -band")
+
+    # -band "40 30 20"
+    # sets the list of bands among which to automatically switch.
+    if args.bands != None:
+        bands = args.bands.strip()
+        bands = re.sub(r'  *', ' ', bands)
+        a = bands.split(" ")
+        for band in a:
+            if not band in b2f:
+                parser.error("band %s not recognized" % (band))
+        auto_bands = a
 
     jt65i = JT65I(args.out, descs,
                   args.cat, args.band)
