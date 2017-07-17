@@ -69,11 +69,11 @@ def comports():
 
 # print serial ports and radio types.
 def usage():
-    sys.stderr.write("serial devices:\n")
+    sys.stderr.write("serial devices for -cat:\n")
     coms = comports()
     for com in coms:
         sys.stderr.write("  %s\n" % (com))
-    sys.stderr.write("radio types: ")
+    sys.stderr.write("radio types for -cat: ")
     for ty in [ "k3", "rx340", "8711", "sdrip", "sdriq", "r75", "r8500", "ar5000", "eb200", "sdrplay", "prc138" ]:
         sys.stderr.write("%s " % (ty))
     sys.stderr.write("\n")

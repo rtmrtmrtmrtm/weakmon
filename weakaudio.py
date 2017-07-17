@@ -463,7 +463,7 @@ class SDRplay:
 def usage():
     import pyaudio
     ndev = pya().get_device_count()
-    sys.stderr.write("sound card numbers for -card:\n")
+    sys.stderr.write("sound card numbers for -card and -out:\n")
     for i in range(0, ndev):
         info = pya().get_device_info_by_index(i) 
         sys.stderr.write("  %d: %s, channels=%d" % (i,

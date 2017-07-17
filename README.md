@@ -1,8 +1,7 @@
 # weakmon
 
-These are command-line Python programs to monitor WSPR and JT65A,
-printing receptions and reporting them to wsprnet and pskreporter.
-The programs with switch among bands automatically on a few radio types.
+These are command-line Python programs for WSPR and JT65A. The
+programs with switch among bands automatically on a few radio types.
 The software works on Macs, Linux, and FreeBSD.
 
 While these programs don't use Joe Taylor's WSJT software, they do
@@ -81,6 +80,14 @@ you can monitor JT65 while switching bands periodically, e.g:
 
 ```
   % python2.7 jt65mon.py -card 2 0 -cat k3 /dev/cu.usbserial-FTXVKSG8A -v
+```
+
+jt65i.py is a terminal-window program that you can tell to respond to CQs.
+It can automatically switch among a set of bands. For example, this command
+will tell a K3 to scan 30, 20, and 17 meters for JT65. To respond to a CQ,
+type the upper-case letter displayed beside the CQ reception report.
+```
+  % python2.7 jt65i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -bands "30 20 17"
 ```
 
 You may need to take steps to give yourself permission to use the
