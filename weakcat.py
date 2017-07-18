@@ -25,31 +25,37 @@ import sdrplay
 
 def open(desc):
     [type, dev] = desc
+    ret = None
     if type == "k3":
-        return K3(dev)
+        ret = K3(dev)
     if type == "rx340":
-        return RX340(dev)
+        ret = RX340(dev)
     if type == "8711":
-        return WJ8711(dev)
+        ret = WJ8711(dev)
     if type == "r75":
-        return R75(dev, 0x5A)
+        ret = R75(dev, 0x5A)
     if type == "r8500":
-        return R75(dev, 0x4A)
+        ret = R75(dev, 0x4A)
     if type == "ar5000":
-        return AR5000(dev)
+        ret = AR5000(dev)
     if type == "sdrip":
-        return SDRIP(dev)
+        ret = SDRIP(dev)
     if type == "sdriq":
-        return SDRIQ(dev)
+        ret = SDRIQ(dev)
     if type == "eb200":
-        return EB200(dev)
+        ret = EB200(dev)
     if type == "sdrplay":
-        return SDRplay(dev)
+        ret = SDRplay(dev)
     if type == "prc138":
-        return PRC138(dev)
+        ret = PRC138(dev)
 
-    sys.stderr.write("weakcat: unknown radio type %s\n" % (type))
-    sys.exit(1)
+    if ret == None:
+        sys.stderr.write("weakcat: unknown radio type %s\n" % (type))
+        sys.exit(1)
+
+    ret.type = type
+    ret.dev = dev
+    return ret
 
 # return a list of serial port device names.
 def comports():
