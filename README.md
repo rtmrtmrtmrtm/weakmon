@@ -1,7 +1,7 @@
 # weakmon
 
 This software implements a terminal-window program for HF JT65
-(jt65i.py). With an Elecraft K3, the jt65i.py can listen for CQs on
+(jt65i.py). With an Elecraft K3, jt65i.py can listen for CQs on
 multiple receivers simultaneously, and switch the receiver(s) among
 bands each minute.
 
@@ -105,21 +105,21 @@ For a K3 with sub-receiver and an RFSpace NetSDR/CloudIQ/SDR-IP (i.e. three rece
   % python2.7 jt65i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 2 1 -card3 sdrip 192.168.3.130 -bands "40 30 20"
 ```
 
-The aprsmon.py, jt65mon.py, wsprmon.py, wwvbmon.py, and wwvmon.py
-programs each decode and display receptions for the respective format.
-They use argument conventions similar to those of jt65i.py.
-
 You may need to take steps to give yourself permission to use the
 serial device (change its mode or put yourself in the appropriate
 group).
+
+The aprsmon.py, jt65mon.py, wsprmon.py, wwvbmon.py, and wwvmon.py
+programs each decode and display receptions for the respective format.
+They use argument conventions similar to those of jt65i.py.
 
 These programs can switch among bands on a number of radio types:
 Elecraft K3, Ten-Tec RX-340, Watkins Johnson WJ-8711, RFSpace SDR-IP,
 RFSpace CloudIQ, RFSpace NetSDR, RFSpace SDR-IQ, Icom R75, Icom R8500,
 AOR AR5000, Rohde and Schwarz EB200, SDRplay, and Harris PRC-138.
 
-Use the -levels flag to help you adjust the audio level from the
-radio. Peaks of a few thousand are good.
+Use the -levels flag to help adjust the audio level from the radio.
+Peaks of a few thousand are good.
 
 You must set your call sign and grid to send with jt65i.py, or to
 report to wsprnet and pskreporter. Do this by copying weak.cfg.example
