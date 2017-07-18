@@ -168,6 +168,10 @@ class JT65:
       gm = time.gmtime(now)
       self.start_time = now - gm.tm_sec
 
+  # seconds per cycle
+  def cycle_length(self):
+      return 60
+
   # return the minute number for t, a UNIX time in seconds.
   # truncates down, so best to pass a time mid-way through a minute.
   def minute(self, t):
@@ -180,6 +184,9 @@ class JT65:
       dt /= 60.0
       m = int(dt)
       return 60.0 * (dt - m)
+
+  def seconds_left(self, t):
+      return 60 - self.second(t)
 
   # printable UTC timestamp, e.g. "07/07/15 16:31:00"
   # dd/mm/yy hh:mm:ss
@@ -500,17 +507,6 @@ class JT65:
                 subalready[dec.msg] = True
         i += 1
     nfirst = i
-
-    if False:
-        print("pass 2")
-        weakutil.writewav1(ssamples, "x.wav", self.jrate)
-        # jt65files/160424_1725.wav
-        zhz = 1545.0
-        self.process1(ssamples, zhz, noise, 20680, already) # N2NTX KE0CRP R-08
-        self.process1(ssamples, zhz, noise, 20821, already) # N2NTX KE0CRP R-08
-        self.process1(ssamples, zhz, noise, 21000, already) # N2NTX KE0CRP R-08
-        self.process1(ssamples, zhz, noise, 21162, already) # N2NTX KE0CRP R-08
-        self.process1(ssamples, zhz, noise, 21300, already) # N2NTX KE0CRP R-08
 
     # re-score subtracted samples.
     [ junk_noise, scores ] = self.scores(ssamples, min_hz, max_hz)
