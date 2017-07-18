@@ -925,53 +925,57 @@ class JT65I:
         inlotw = 0
         notinlotw = 0
 
-        f = open(self.logname, "r")
-        while True:
-            l = f.readline()
-            if l == "":
-                break
-            l = re.sub(r'  *', ' ', l)
-            a = l.split(" ")
-
-            band = self.f2b(a[3])
-
-            # parse the time, 15/02/17 17:51
-            da = a[1].split("/")
-            ta = a[2].split(":")
-            if len(da) == 3 and len(ta) >= 2:
-                tm = time.struct_time([
-                     int(da[2]) + 2000, # year
-                     int(da[1]), # mon
-                     int(da[0]), # mday
-                     int(ta[0]), # hour
-                     int(ta[1]), # min
-                     0, # sec
-                     0, # wday
-                     0, # yday
-                     -1]) # isdst
-                secs = calendar.timegm(tm)
-            else:
-                secs = time.time()
-
-            key = self.callkey(a[0], band)
-            self.band_call[key] = secs
-
-            if lotw == None or key in lotw:
-                inlotw += 1
-                entity = look_prefix(a[0], self.prefixes)
-                if entity != None:
-                    ek = self.entitykey(entity, band)
-                    self.band_entity[ek] = self.band_entity.get(ek, 0) + 1
-                    self.all_entity[entity] = self.all_entity.get(entity, 0) + 1
-                m = re.search(r', ([A-Z][A-Z][0-9][0-9]), ', l)
-                if m != None:
-                    grid = m.group(1)
-                    gk = self.gridkey(grid, band)
-                    self.band_grid[gk] = self.band_grid.get(gk, 0) + 1
-            else:
-                notinlotw += 1
-        sys.stdout.flush()
-        f.close()
+        try:
+            f = open(self.logname, "r")
+        except:
+            f = None
+        if f != None:
+            while True:
+                l = f.readline()
+                if l == "":
+                    break
+                l = re.sub(r'  *', ' ', l)
+                a = l.split(" ")
+    
+                band = self.f2b(a[3])
+    
+                # parse the time, 15/02/17 17:51
+                da = a[1].split("/")
+                ta = a[2].split(":")
+                if len(da) == 3 and len(ta) >= 2:
+                    tm = time.struct_time([
+                         int(da[2]) + 2000, # year
+                         int(da[1]), # mon
+                         int(da[0]), # mday
+                         int(ta[0]), # hour
+                         int(ta[1]), # min
+                         0, # sec
+                         0, # wday
+                         0, # yday
+                         -1]) # isdst
+                    secs = calendar.timegm(tm)
+                else:
+                    secs = time.time()
+    
+                key = self.callkey(a[0], band)
+                self.band_call[key] = secs
+    
+                if lotw == None or key in lotw:
+                    inlotw += 1
+                    entity = look_prefix(a[0], self.prefixes)
+                    if entity != None:
+                        ek = self.entitykey(entity, band)
+                        self.band_entity[ek] = self.band_entity.get(ek, 0) + 1
+                        self.all_entity[entity] = self.all_entity.get(entity, 0) + 1
+                    m = re.search(r', ([A-Z][A-Z][0-9][0-9]), ', l)
+                    if m != None:
+                        grid = m.group(1)
+                        gk = self.gridkey(grid, band)
+                        self.band_grid[gk] = self.band_grid.get(gk, 0) + 1
+                else:
+                    notinlotw += 1
+            sys.stdout.flush()
+            f.close()
         if lotw != None:
             print("%d in lotw, %d not in lotw" % (inlotw, notinlotw))
 
