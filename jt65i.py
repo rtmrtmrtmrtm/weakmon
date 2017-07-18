@@ -14,11 +14,25 @@
 # ./jt65i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -bands "30 20 17"
 #
 # To use on a single band without CAT (radio must be set up
-# correctly already):
+# correctly already, and have VOX if you want to transmit):
 # ./jt65i.py -card 2 0 -out 1 -band 30
 #
 # Select a CQ to reply to by typing the upper-case letter displayed
 # next to the CQ. jt65i.py automates the rest of the exchange.
+#
+# jt65i.py can use multiple receivers, listening to a different band on
+# each; when you reply to a CQ it automatically sets the transmitter to
+# the correct band. This works for a K3 with a sub-receiver, or a K3
+# with SDRs that jt65i.py knows how to control.
+#
+# For a K3 with a sub-receiver:
+# ./jt65i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 2 1 -bands "40 30 20"
+#
+# For a K3 without sub-receiver, and an RFSpace NetSDR/CloudIQ/SDR-IP:
+# ./jt65i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 sdrip 192.168.3.130 -bands "40 30 20"
+#
+# For a K3 with sub-receiver and an RFSpace NetSDR/CloudIQ/SDR-IP (i.e. three receivers):
+# ./jt65i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 2 1 -card3 sdrip 192.168.3.130 -bands "40 30 20"
 #
 # Robert Morris, AB1HL
 #
@@ -453,13 +467,36 @@ class JT65I:
         k = self.callkey(call, band)
         return k in self.band_call
 
-    # set up receivers for a QSO minute during which we transmit.
+    # set up frequencies for a QSO minute during which we transmit.
     def qso_sending(self, band):
-        pass
+        minute = self.minute(time.time())
+        for i in range(0, len(self.r)):
+            self.set_band(minute, i, band)
+            if i == 0:
+                self.r[i].enabled = True
+                thisband = band
+            else:
+                self.r[i].enabled = False
+                # not band, to avoid receiver overload
+                if band == "10":
+                    thisband = "40"
+                else:
+                    thisband = "10"
+            if self.rcat[i] != None:
+                self.rcat[i].setf(i, int(b2f[thisband] * 1000000.0))
+        if self.cat != None:
+            self.cat.sync()
 
-    # set up receivers for a QSO minute during which we receive.
+    # set up frequencies for a QSO minute during which we receive.
     def qso_receiving(self, band):
-        pass
+        minute = self.minute(time.time())
+        for i in range(0, len(self.r)):
+            self.set_band(minute, i, band)
+            self.r[i].enabled = True
+            if self.rcat[i] != None:
+                self.rcat[i].setf(i, int(b2f[band] * 1000000.0))
+        if self.cat != None:
+            self.cat.sync()
 
     # what band was card ci tuned to during a particular minute?
     # returns a string, e.g. "20", or None.
@@ -532,7 +569,8 @@ class JT65I:
                 c[band] = 5.0
         wsum = numpy.sum([ c[band] for band in c ])
         wsum = max(wsum, 1.0)
-        wa = [ [ band, max(c[band], wsum*0.06*self.idleweight(band)) ] for band in c ]
+        minweight = wsum * 0.25 / len(c) # spend about 1/4 of the time on inactive bands
+        wa = [ [ band, max(c[band], minweight*self.idleweight(band)) ] for band in c ]
         ret = wchoice(wa, len(self.r))
 
         return ret
@@ -953,8 +991,10 @@ class JT65I:
             th.daemon = True
             th.start()
             self.rth.append(th)
-            if ci < 2:
-                # first two assumed to be K3
+            if ci == 0:
+                self.rcat.append(self.cat)
+            elif ci == 1 and self.cat != None and self.cat.type == "k3" and desc[0][0].isdigit():
+                # assume -card2 is the K3 sub-receiver.
                 self.rcat.append(self.cat)
             else:
                 self.rcat.append(weakcat.open(desc))
