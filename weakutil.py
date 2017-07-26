@@ -609,11 +609,10 @@ def gray2bin(x, nb):
 # spacing is the space in hz between FSK tones.
 # rate is samples per second.
 # symsamples is samples per symbol.
-def fsk(symbols, hza, spacing, rate, symsamples):
-    # compute frequency for each symbol.
+def fsk(symbols, hza, spacing, rate, symsamples, phase0=0.0):
+    # compute frequency for each symbol, in hz[0]..hz[1].
     symhz = numpy.zeros(len(symbols))
     for bi in range(0, len(symbols)):
-        #base = self.sync_hz(hza, bi)
         base_hz = hza[0] + (hza[1] - hza[0]) * (bi / float(len(symbols)))
         fr = base_hz + (symbols[bi] * spacing)
         symhz[bi] = fr
@@ -623,6 +622,9 @@ def fsk(symbols, hza, spacing, rate, symsamples):
 
     # cumulative angle.
     angles = numpy.cumsum(2.0 * numpy.pi / (float(rate) / hzv))
+
+    # start at indicated phase.
+    angles = angles + phase0
 
     a = numpy.sin(angles)
 

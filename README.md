@@ -1,7 +1,7 @@
 # weakmon
 
-This software implements a terminal-window program for HF JT65
-(jt65i.py). With an Elecraft K3, jt65i.py can listen for CQs on
+This software implements terminal-window programs for HF JT65
+(jt65i.py) and FT8 (ft8i.py). With an Elecraft K3, both can listen for CQs on
 multiple receivers simultaneously, and switch the receiver(s) among
 bands each minute.
 
@@ -9,8 +9,9 @@ There are also demodulators for WSPR, APRS, WWV, and WWVB. The
 software works on Macs, Linux, and FreeBSD.
 
 While these programs don't use Joe Taylor's WSJT software, they do
-incorporate ideas from that software. These programs use Phil Karn's
-Reed-Solomon and convolutional decoders.
+incorporate ideas and protocol details derived from that software.
+These programs use Phil Karn's Reed-Solomon and convolutional
+decoders.
 
 The software depends on a few packages. Here's how to install them
 on Ubuntu Linux:
@@ -121,13 +122,13 @@ AOR AR5000, Rohde and Schwarz EB200, SDRplay, and Harris PRC-138.
 Use the -levels flag to help adjust the audio level from the radio.
 Peaks of a few thousand are good.
 
-You must set your call sign and grid to send with jt65i.py, or to
-report to wsprnet and pskreporter. Do this by copying weak.cfg.example
-to weak.cfg, un-commenting the mycall and mygrid lines, and changing
-them to your callsign and grid.
+You must set your call sign and grid to send with jt65i.py or ft8i.py,
+or to report to wsprnet and pskreporter. Do this by copying
+weak.cfg.example to weak.cfg, un-commenting the mycall and mygrid
+lines, and changing them to your callsign and grid.
 
-Your computer's clock must be correct to within a second for WSPR and
-JT65; try ntp.
+Your computer's clock must be correct to within a second for WSPR,
+JT65, and FT8; try ntp.
 
 This software surely contains errors, particularly since I'm no expert
 at signal processing. I'd appreciate fixes for any bugs you discover.
