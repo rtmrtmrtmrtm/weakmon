@@ -17,7 +17,7 @@
 # correctly already, and have VOX if you want to transmit):
 # ./ft8i.py -card 2 0 -out 1 -band 30
 #
-# Select a CQ to reply to by typing the upper-case letter displayed
+# Select a CQ to reply to by typing the letter displayed
 # next to the CQ. ft8i.py automates the rest of the exchange.
 #
 # ft8i.py can use multiple receivers, listening to a different band on
@@ -413,19 +413,16 @@ class FT8I:
             return False
         return True
 
-    # wait until the 59th second.
-    # return array of Decodes from the almost-completed minute.
-    # suppress=True means we sent during this minute, so
-    # ignore any decodes.
-    def wait59(self, suppress):
+    # wait until the very end of the cycle indicated by minute.
+    def wait_end(self, minute):
         while True:
             now = time.time()
-            if self.seconds_left(now) <= 0.3:
-                msgs = [ ]
-                for dec in self.log[-30:]:
-                    if dec.minute == self.minute(now):
-                        msgs.append(dec)
-                return msgs
+            if self.minute(now) > minute:
+                # oops
+                return
+            if self.minute(now) == minute:
+                if self.seconds_left(now) <= 0.3:
+                    return 
             time.sleep(0.2)
 
     # is txt a CQ?
@@ -499,7 +496,7 @@ class FT8I:
         minute = self.minute(time.time())
         for i in range(0, len(self.r)):
             self.set_band(minute, i, band)
-            self.r[i].enabled = True
+            self.r[i].enabled = (i == 0)
             if self.rcat[i] != None:
                 self.rcat[i].setf(i, int(b2f[band] * 1000000.0))
         if self.cat != None:
@@ -614,6 +611,9 @@ class FT8I:
     def one(self):
         self.dhiscall = None
 
+        for i in range(0, len(self.r)):
+            self.r[i].enabled = True
+
         do_switch = False
 
         # if the user doesn't select a CQ, wait for last
@@ -668,22 +668,27 @@ class FT8I:
         # up fairly frequently.
         hissig = None
         olen = len(self.log)
+        why = None
         for tries in range(0, 2):
             if tries > 0:
-                self.show_message("No reply from %s, trying once more." % (cq.hiscall))
+                if why == None:
+                    self.show_message("No reply from %s, trying once more." % (cq.hiscall))
+                else:
+                    self.show_message(why)
+                    why = None
 
             self.qso_sending(cq.band) # disable receivers
             self.send(cq.band, myhz, "%s %s %s" % (cq.hiscall,
                                                 self.mycall,
                                                 self.mygrid))
 
-            self.wait59(True)
+            minute = self.minute(time.time())
+            self.wait_end(minute)
+            minute += 1
             self.qso_receiving(cq.band) # enable receivers
-            time.sleep(3)
 
             # wait for AB1HL HISCALL -YY until just after the end of his cycle.
-            minute = self.minute(time.time())
-            while self.minute() == minute or (self.minute() == minute+1 and self.second() < 0.5):
+            while self.minute() <= minute or (self.minute() == minute+1 and self.second() < 0.5):
                 if self.dwanted != None:
                     # user wants to switch to another CQ.
                     self.show_message("Terminating contact with %s." % (self.dhiscall))
@@ -717,7 +722,7 @@ class FT8I:
                         # he responded to someone else, or he CQ'd again.
                         if a[0] == "CQ":
                             # he CQd again.
-                            self.show_message("%s CQ'd again." % (cq.hiscall))
+                            why = "%s CQ'd again." % (cq.hiscall)
                         else:
                             self.show_message("%s responded to %s." % (cq.hiscall, a[0]))
                             return
@@ -727,7 +732,10 @@ class FT8I:
                 break
 
         if hissig == None:
-            self.show_message("%s did not respond." % (cq.hiscall))
+            if why == None:
+                self.show_message("%s did not respond." % (cq.hiscall))
+            else:
+                self.show_message(why)
             time.sleep(2)
             return
 
@@ -738,17 +746,17 @@ class FT8I:
         for tries in range(0, 3):
             self.qso_sending(cq.band) # disable receivers
             self.send(cq.band, myhz, "%s %s R-%02d" % (cq.hiscall, self.mycall, -snr))
-            self.wait59(True)
+            minute = self.minute(time.time())
+            self.wait_end(minute)
+            minute += 1
             self.qso_receiving(cq.band) # enable receivers
-            time.sleep(3)
 
             # wait for AB1HL HISCALL RRR or 73.
             # or AB1HL RRR 73
             # but try once more if we don't see RRR/73,
             # e.g. if he (re)sends AB1HL XXX -04.
-            minute = self.minute(time.time())
             found = False
-            while self.minute() == minute or (self.minute() == minute+1 and self.second() < 0.5):
+            while self.minute() <= minute or (self.minute() == minute+1 and self.second() < 0.5):
                 if self.dwanted != None:
                     # user wants to switch to another CQ.
                     self.show_message("Terminating contact with %s." % (self.dhiscall))
@@ -778,7 +786,8 @@ class FT8I:
         self.write_log(cq.band, cq.hz(), cq.hiscall, hissig, cq.hisgrid, snr)
         self.qso_sending(cq.band) # disable receivers
         self.send(cq.band, myhz, "%s %s 73" % (cq.hiscall, self.mycall))
-        self.wait59(True)
+        minute = self.minute(time.time())
+        self.wait_end(minute)
         self.qso_receiving(cq.band) # enable receivers
 
         return
@@ -1200,7 +1209,7 @@ class FT8I:
                 if dec.minute == minute or (dec.minute == minute - 1 and self.second(time.time()) < 5):
                     # display a letter beside each fresh CQ,
                     # so user can select one with a keystroke.
-                    cqch = chr(ord('A') + cqi)
+                    cqch = chr(ord('a') + cqi)
                     start += cqch
                     cqcalls[cqch] = dec
                     cqi += 1
