@@ -17,6 +17,7 @@ import time
 import copy
 import calendar
 import subprocess
+import multiprocessing
 import threading
 import re
 import random
@@ -30,7 +31,7 @@ import weakutil
 #
 budget = 2 # max seconds of time for decoding.
 fstep = 0.5 # coarse search granularity, FFT bins
-tstep = 0.5 # coarse search granularity, symbol times
+tstep = 0.25 # coarse search granularity, symbol times
 tslop = 1.0 # coarse search, +/- start time of 0.5 seconds, in seconds
 start_adj = 0.5 # signals seem on avg to start this many seconds late.
 ldpc_iters = 25
@@ -617,8 +618,8 @@ class FT8:
       self.verbose = False
       self.enabled = True
 
-      self.jrate = 12000 // 2 # sample rate for processing (FFT &c)
-      self.jblock = 1920 // 2 # samples per symbol
+      self.jrate = 12000 # sample rate for processing (FFT &c)
+      self.jblock = 1920 # samples per symbol
 
       # set self.start_time to the UNIX time of the start
       # of the last UTC minute.
@@ -755,6 +756,39 @@ class FT8:
       return a
 
   def process(self, samples, samples_time):
+      global very_first_time
+      if very_first_time:
+          # warm things up.
+          very_first_time = False
+          thunk = (lambda dec : self.got_msg(dec))
+          self.process0(samples, samples_time, thunk)
+          return
+
+      sys.stdout.flush()
+      rpipe, spipe = multiprocessing.Pipe(False)
+
+      proc = multiprocessing.Process(target=self.process00,
+                                     args=[samples, samples_time, spipe])
+      proc.start()
+      spipe.close()
+
+      while True:
+          try:
+              dec = rpipe.recv()
+              self.got_msg(dec)
+          except:
+              break
+
+      proc.terminate()
+      proc.join(2.0)
+      rpipe.close()
+
+  def process00(self, samples, samples_time, spipe):
+      thunk = (lambda dec : spipe.send(dec))
+      self.process0(samples, samples_time, thunk)
+      spipe.close()
+
+  def process0(self, samples, samples_time, thunk):
     global budget
 
     if self.enabled == False:
@@ -779,14 +813,7 @@ class FT8:
             i -= 1
     samples = samples[0:i]
 
-    if self.cardrate != self.jrate:
-      # reduce rate from self.cardrate to self.jrate.
-      assert self.jrate >= 2 * 2500
-      #filter = weakutil.butter_lowpass(2500.0, self.cardrate, order=10)
-      #samples = scipy.signal.lfilter(filter[0],
-      #                               filter[1],
-      #                               samples)
-      samples = weakutil.resample(samples, self.cardrate, self.jrate)
+    assert self.cardrate == self.jrate
 
     # nominal signal start time is half a second into samples[].
     # prepend an extra second of padding.
@@ -844,7 +871,8 @@ class FT8:
             dec.dt = ((offset - start_pad) / float(self.jrate))
             if self.verbose:
                 print "%6.1f %5d %s" % (hz, offset, dec.msg)
-            self.got_msg(dec)
+            # self.got_msg(dec)
+            thunk(dec)
 
   # look for the three Costas sync arrays for a signal
   # at hz Hz starting at samples[start +/ slop].
@@ -1417,6 +1445,8 @@ class FT8:
 
     return ''.join(msg)
 
+very_first_time = True
+
 class FT8Send:
     def __init__(self):
         pass
@@ -1883,8 +1913,8 @@ vars = [
     [ "start_adj", [ 0.25, 0.33, 0.5, 0.66, 0.75, 1 ] ],
     [ "ldpc_iters", [ 12, 20, 25, 30, 37, 50, 75, 100 ] ],
     [ "tslop", [ 0.5, 0.75, 0.85, 1.0, 1.25, 1.5, 1.75, 2.0 ] ],
-    [ "fstep", [ 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
-    [ "tstep", [ 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
+    [ "fstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
+    [ "tstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
     [ "budget", [ 2, 4, 20 ] ],
     ]
 
