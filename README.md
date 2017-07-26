@@ -76,7 +76,7 @@ The "-card 2 0" means the left (0) channel of sound card number 2 (as
 listed in jt65i.py's "usage" output). The "-out 1" means sound card 1.
 
 jt65i.py will display decoded JT65 messages, and mark each received CQ
-with a capital letter; type the letter to respond to the CQ.
+with a letter; type the letter to respond to the CQ.
 
 jt65i.py can automatically switch among a set of bands, once per
 minute. For example, this command will tell a K3 to scan 30, 20, and
