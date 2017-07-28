@@ -257,11 +257,7 @@ class FT8I:
     def decode_loop(self):
         while True:
             self.decode_new()
-            s = self.second()
-            if s > 1 and s < 14:
-                time.sleep(0.5)
-            else:
-                time.sleep(0.1)
+            time.sleep(0.1)
 
     # read latest msgs from all cards,
     # append to self.log[].
@@ -274,9 +270,12 @@ class FT8I:
             msgs = self.r[ci].get_msgs()
             # each msg is a ft8.Decode.
             for dec in msgs:
+                dec.card = ci
+                dec.band = self.get_band(dec.minute, ci)
+                f = open("xlog", "a")
+                f.write("%s %d %.2f -- %d %s %s\n" % (self.ts(time.time()), self.minute(), self.second(), dec.minute, dec.band, dec.msg))
+                f.close()
                 if self.r[ci].enabled:
-                    dec.card = ci
-                    dec.band = self.get_band(dec.minute, ci)
                     if dec.band == None:
                         # ???
                         continue
@@ -687,8 +686,11 @@ class FT8I:
             minute += 1
             self.qso_receiving(cq.band) # enable receivers
 
+            assert (minute == cq.minute + 2 or minute == cq.minute + 4)
+            assert self.minute() <= minute
+
             # wait for AB1HL HISCALL -YY until just after the end of his cycle.
-            while self.minute() <= minute or (self.minute() == minute+1 and self.second() < 0.5):
+            while self.minute() <= minute or (self.minute() == minute+1 and self.second() < 0.6):
                 if self.dwanted != None:
                     # user wants to switch to another CQ.
                     self.show_message("Terminating contact with %s." % (self.dhiscall))
@@ -726,7 +728,7 @@ class FT8I:
                         else:
                             self.show_message("%s responded to %s." % (cq.hiscall, a[0]))
                             return
-                time.sleep(0.2)
+                time.sleep(0.1)
 
             if hissig != None:
                 break
