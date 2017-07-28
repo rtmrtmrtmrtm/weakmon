@@ -30,11 +30,15 @@ import weakutil
 # tuning parameters.
 #
 budget = 2 # max seconds of time for decoding.
-fstep = 0.5 # coarse search granularity, FFT bins
-tstep = 0.25 # coarse search granularity, symbol times
+fstep = 1.0 # coarse search granularity, FFT bins
+tstep = 1.0 # coarse search granularity, symbol times
 tslop = 1.0 # coarse search, +/- start time of 0.5 seconds, in seconds
+fine_tslop = 0.5 # fraction of tstep, for offset fine-tuning
+fine_tstep = 0.5 # fraction of fine_tslop
+fine_fslop = 0.5 # fraction of fstep, for hz fine-tuning
+fine_fstep = 0.5 # fraction of fine_fslop
 start_adj = 0.5 # signals seem on avg to start this many seconds late.
-ldpc_iters = 25
+ldpc_iters = 33
 
 # FT8 modulation and protocol definitions.
 # 1920-point FFT at 12000 samples/second
@@ -556,7 +560,7 @@ class FFTCache:
         self.samples = samples
         self.memo = { }
         self.bin_granules = 4
-        self.block_granules = 8
+        self.block_granules = 4
 
     # return buckets[0..162ish][4] -- i.e. a mini-FFT per symbol.
     def get(self, hz, start):
@@ -854,6 +858,14 @@ class FT8:
         if offset < 0 or (offset+79*self.jblock) > len(samples):
             continue
 
+        # improve the starting offset.
+        offslop = int(self.jblock * tstep * fine_tslop)
+        offstep = int(offslop * fine_tstep)
+        [ offset, strength ] = self.best_offset(xf, hz, offset, offslop, offstep)
+        hzslop = fstep * bin_hz * fine_fslop
+        hzstep = hzslop * fine_fstep
+        [ hz, strength ] = self.best_freq(xf, hz, offset, hzslop, hzstep)
+
         ss = xf.get(hz, offset)
         # ss has 79 8-bucket mini-FFTs.
 
@@ -874,57 +886,47 @@ class FT8:
             # self.got_msg(dec)
             thunk(dec)
 
-  # look for the three Costas sync arrays for a signal
-  # at hz Hz starting at samples[start +/ slop].
-  # return [ start, strength ]
-  def old_find_sync(self, samples, hz, start, slop):
-    start = int(start)
-    slop = int(slop)
-    bin_hz = self.jrate / float(self.jblock)
+  # find hz with best Costas sync at offset=start.
+  # look at frequencies midhz +/ slop,
+  # at granule hz increments.
+  # returns [ hz, strength ]
+  def best_freq(self, xf, midhz, start, slop, granule):
+      start = int(start)
+      bin_hz = self.jrate / float(self.jblock)
+      
+      # a Costas sync array.
+      costas_symbols = [ 2, 5, 6, 0, 4, 1, 3 ]
+      costas_array = numpy.ones((7, 8)) * -1
+      for i in range(0, len(costas_symbols)):
+          costas_array[i][costas_symbols[i]] = 1
 
-    # generate the tones for a Costas sync array.
-    costas_symbols = [ 2, 5, 6, 0, 4, 1, 3 ]
-    costas = weakutil.fsk(costas_symbols,
-                          [ hz, hz ],
-                          bin_hz,
-                          self.jrate,
-                          self.jblock,
-                          phase0=(2*3.1416)*0.5)
+      hz0 = midhz - slop
+      hz1 = midhz + slop
 
-    # is there a Costas array around symbol 0?
-    i0 = max(0, start - slop)
-    cc0 = numpy.correlate(samples[i0:i0+2*slop+len(costas)], costas)
-    mm0 = numpy.argmax(cc0)
+      corrs = [ ]
+      for hz in numpy.arange(hz0, hz1, granule):
+          ss = xf.get(hz, start)
+          if len(ss) < 79:
+              continue
+          # ss has 79 8-bucket mini-FFTs.
 
-    # is there a Costas array around symbol 36?
-    i36 = start + 36*self.jblock - slop
-    cc36 = numpy.correlate(samples[i36:i36+2*slop+len(costas)], costas)
-    mm36 = numpy.argmax(cc36)
+          a = ss[0:7] + ss[36:43] + ss[72:79]
+          norm = numpy.sum(a)
+          b = a * costas_array
+          c = numpy.sum(b)
+          c = c / norm
+          corr = c
 
-    # is there a Costas array around symbol 72?
-    i72 = start + 72*self.jblock - slop
-    cc72 = numpy.correlate(samples[i72:i72+2*slop+len(costas)], costas)
-    mm72 = numpy.argmax(cc72)
+          corrs.append([hz, corr])
 
-    # implied best start positions
-    start0 = i0 + mm0
-    strength0 = cc0[mm0]
-    start36 = i36 + mm36 - 36*self.jblock
-    strength36 = cc36[mm36]
-    start72 = i72 + mm72 - 72*self.jblock
-    strength72 = cc72[mm72]
-    
-    # print "%.1f %d %d %d" % (hz, strength0, strength36, strength72)
+      corrs = sorted(corrs, key = lambda e : - e[1])
+      return corrs[0]
 
-    ssum = strength0 + strength36 + strength72
-
-    if strength0 >= max(strength36, strength72):
-        return [ start0, ssum ]
-    if strength36 >= max(strength0, strength72):
-        return [ start36, ssum ]
-    return [ start72, ssum ]
-
-  def find_sync(self, xf, hz, start, slop, granule):
+  # find offset with best Costas sync at hz.
+  # looks at offsets at start +/- slop,
+  # at granule offset increments.
+  # returns [ start, strength ]
+  def best_offset(self, xf, hz, start, slop, granule):
       start = int(start)
       slop = int(slop)
       granule = int(granule)
@@ -946,17 +948,6 @@ class FT8:
           if len(ss) < 79:
               continue
           # ss has 79 8-bucket mini-FFTs.
-
-          #corr = 0.0
-          #for i in [0, 36, 72]:
-          #    a = ss[i:i+7]
-          #    # normalize to emphasize strength of correlation
-          #    # and de-emphasize signal strength.
-          #    norm = numpy.sum(a)
-          #    b = a * costas_array
-          #    c = numpy.sum(b)
-          #    c = c / norm
-          #    corr += c
 
           a = ss[0:7] + ss[36:43] + ss[72:79]
           norm = numpy.sum(a)
@@ -996,17 +987,13 @@ class FT8:
     min_hz = 200
     max_hz = 2500
 
-    # XXX for faster testing
-    #min_hz = 1110
-    #max_hz = 1120
-
     coarse_rank = [ ]
 
     for hz in numpy.arange(min_hz, max_hz, bin_hz * fstep):
         # look this many samples before/after nominal_start.
         slop = self.jrate * tslop
 
-        [ start, ssum ] = self.find_sync(xf, hz, nominal_start, slop, self.jblock * tstep)
+        [ start, ssum ] = self.best_offset(xf, hz, nominal_start, slop, self.jblock * tstep)
 
         coarse_rank.append( [ hz, start,  ssum ] )
 
@@ -1193,11 +1180,14 @@ class FT8:
               for ii in range(0, 7):
                   if ii != i:
                       x1 = numpy.tanh(m[range(0, 87), nmx[:,ii]-1] / 2.0)
-                      x2 = numpy.select([ nmx[:,ii] > 0 ], [ x1 ], default=1.0)
+                      x2 = numpy.where(numpy.greater(nmx[:,ii], 0.0), x1, 1.0)
                       a = a * x2
-              a = numpy.log((a + 1.0) / (1.0 - a))
+              # avoid divide by zero, i.e. a[i]==1.0
+              # XXX why is a[i] sometimes 1.0?
+              b = numpy.where(numpy.less(a, 0.99999), a, 0.99)
+              c = numpy.log((b + 1.0) / (1.0 - b))
               # XXX ought to mask this assignment, since nmx[:,i]-1 might be -1
-              e[range(0,87), nmx[:,i]-1] = a
+              e[range(0,87), nmx[:,i]-1] = c
 
           # decide if we are done -- compute the corrected codeword,
           # see if the parity check succeeds.
@@ -1910,11 +1900,15 @@ def benchmark1(dir, bfiles, verbose):
     return [ score, wanted ]
 
 vars = [
-    [ "start_adj", [ 0.25, 0.33, 0.5, 0.66, 0.75, 1 ] ],
+    [ "fine_fstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.66, 0.99 ] ],
+    [ "fine_tstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.66 ] ],
+    [ "fstep", [ 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
+    [ "tstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
     [ "ldpc_iters", [ 12, 20, 25, 30, 37, 50, 75, 100 ] ],
     [ "tslop", [ 0.5, 0.75, 0.85, 1.0, 1.25, 1.5, 1.75, 2.0 ] ],
-    [ "fstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
-    [ "tstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
+    [ "fine_tslop", [ 0.33, 0.5, 1.0 ] ],
+    [ "fine_fslop", [ 0.1, 0.33, 0.5, 1.0 ] ],
+    [ "start_adj", [ 0.33, 0.42, 0.5, 0.58, 0.66 ] ],
     [ "budget", [ 2, 4, 20 ] ],
     ]
 
