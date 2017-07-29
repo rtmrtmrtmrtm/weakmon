@@ -30,12 +30,13 @@ import weakutil
 # tuning parameters.
 #
 budget = 2 # max seconds of time for decoding.
-fstep = 1.0 # coarse search granularity, FFT bins
-tstep = 1.0 # coarse search granularity, symbol times
-tslop = 1.0 # coarse search, +/- start time of 0.5 seconds, in seconds
-fine_tslop = 0.5 # fraction of tstep, for offset fine-tuning
+coarse_fstep = 0.5 # coarse search granularity, FFT bins
+coarse_tstep = 0.5 # coarse search granularity, symbol times
+coarse_tslop = 1.75 # coarse search, +/- start time of 0.5 seconds, in seconds
+coarse_no    = 1 # number of best offsets to use per hz
+fine_tslop = 0.0 # fraction of coarse_tstep, for offset fine-tuning
 fine_tstep = 0.5 # fraction of fine_tslop
-fine_fslop = 0.5 # fraction of fstep, for hz fine-tuning
+fine_fslop = 0.0 # fraction of coarse_fstep, for hz fine-tuning
 fine_fstep = 0.5 # fraction of fine_fslop
 start_adj = 0.5 # signals seem on avg to start this many seconds late.
 ldpc_iters = 33
@@ -722,12 +723,17 @@ class FT8:
                   sys.stderr.write("!")
 
           if len(buf) == 0:
-              time.sleep(0.2)
+              sec = self.second(samples_time)
+              if sec < 12:
+                  time.sleep(1)
+              else:
+                  time.sleep(0.1)
 
           # an FT8 frame starts on second 0.5, and takes 12.64 seconds.
           sec = self.second(samples_time)
           if sec >= 13.14 and nsamples >= 13.14*self.cardrate:
-              # we have >= 13.14 seconds of samples, and second of minute is >= 13.14.
+              # we have >= 13.14 seconds of samples,
+              # and second of minute is >= 13.14.
 
               samples = numpy.concatenate(bufbuf)
 
@@ -822,8 +828,8 @@ class FT8:
     # nominal signal start time is half a second into samples[].
     # prepend an extra second of padding.
     # and ensure a 1.5 seconds of pad at the end,
-    start_pad = int(1.5 * self.jrate)
-    end_pad = int(1.5 * self.jrate)
+    start_pad = int(2.5 * self.jrate)
+    end_pad = int(2.5 * self.jrate)
     sm = numpy.mean(samples[12000:20000]) # pad with plausible signal levels
     sd = numpy.std(samples[12000:20000])
     sd /= 4.0
@@ -858,13 +864,18 @@ class FT8:
         if offset < 0 or (offset+79*self.jblock) > len(samples):
             continue
 
-        # improve the starting offset.
-        offslop = int(self.jblock * tstep * fine_tslop)
-        offstep = int(offslop * fine_tstep)
-        [ offset, strength ] = self.best_offset(xf, hz, offset, offslop, offstep)
-        hzslop = fstep * bin_hz * fine_fslop
-        hzstep = hzslop * fine_fstep
-        [ hz, strength ] = self.best_freq(xf, hz, offset, hzslop, hzstep)
+        if fine_tslop > 0.0001:
+            # improve the starting offset.
+            offslop = int(self.jblock * coarse_tstep * fine_tslop)
+            offstep = int(offslop * fine_tstep)
+            # [ [ offset, strength ], ... ]
+            offs = self.best_offsets(xf, hz, offset, offslop, offstep)
+            [ offset, strength ] = offs[0]
+        if fine_fslop > 0.0001:
+            # improve the starting hz.
+            hzslop = coarse_fstep * bin_hz * fine_fslop
+            hzstep = hzslop * fine_fstep
+            [ hz, strength ] = self.best_freq(xf, hz, offset, hzslop, hzstep)
 
         ss = xf.get(hz, offset)
         # ss has 79 8-bucket mini-FFTs.
@@ -925,8 +936,8 @@ class FT8:
   # find offset with best Costas sync at hz.
   # looks at offsets at start +/- slop,
   # at granule offset increments.
-  # returns [ start, strength ]
-  def best_offset(self, xf, hz, start, slop, granule):
+  # returns [ [ start, strength ], ... ]
+  def best_offsets(self, xf, hz, start, slop, granule):
       start = int(start)
       slop = int(slop)
       granule = int(granule)
@@ -953,13 +964,13 @@ class FT8:
           norm = numpy.sum(a)
           b = a * costas_array
           c = numpy.sum(b)
-          c = c / norm
+          c = c / norm # we care about strength of correlation, not sig ampl
           corr = c
 
           corrs.append([off, corr])
 
       corrs = sorted(corrs, key = lambda e : - e[1])
-      return corrs[0]
+      return corrs
 
   # do a coarse pass over the band, looking for
   # possible signals.
@@ -989,13 +1000,16 @@ class FT8:
 
     coarse_rank = [ ]
 
-    for hz in numpy.arange(min_hz, max_hz, bin_hz * fstep):
+    for hz in numpy.arange(min_hz, max_hz, bin_hz * coarse_fstep):
         # look this many samples before/after nominal_start.
-        slop = self.jrate * tslop
+        slop = self.jrate * coarse_tslop
 
-        [ start, ssum ] = self.best_offset(xf, hz, nominal_start, slop, self.jblock * tstep)
+        # [ [ start, ssum ], ... ]
+        offs = self.best_offsets(xf, hz, nominal_start, slop,
+                                 self.jblock * coarse_tstep)
 
-        coarse_rank.append( [ hz, start,  ssum ] )
+        for e in offs[0:coarse_no]:
+            coarse_rank.append( [ hz, e[0],  e[1] ] )
 
     coarse_rank = sorted(coarse_rank, key = lambda e : -e[2])
             
@@ -1010,17 +1024,35 @@ class FT8:
     # mean and std dev of winning and non-winning
     # FFT bins, to help compute probabilities of
     # symbol values for soft decoding.
-    # XXX no need to guess about winner in Costas arrays.
-    # XXX could use *just* the known Costas symbols.
-    winners = numpy.zeros(len(m79))
-    losers = numpy.zeros(len(m79) * 7)
-    for mi in range(0, len(m79)):
-        e = m79[mi]
-        wini = numpy.argmax(e) # guess the winning tone.
-        winners[mi] = e[wini]
-        li = mi * 7
-        losers[li:li+wini] = e[0:wini]
-        losers[li+wini:li+7] = e[wini+1:]
+    if True:
+        # just look at Costas arrays, where we know
+        # which symbols are correct.
+        winners = numpy.zeros(3*7)
+        losers = numpy.zeros(3*7*7)
+        costas_symbols = [ 2, 5, 6, 0, 4, 1, 3 ]
+        wi = 0
+        li = 0
+        for i0 in [ 0, 36, 72 ]:
+            for i1 in range(0, 7):
+                cs = costas_symbols[i1]
+                winners[wi] = m79[i0+i1][cs]
+                wi += 1
+                losers[li:li+cs] = m79[i0+i1][0:cs]
+                losers[li+cs:li+7] = m79[i0+i1][cs+1:]
+                li += 7
+    else:
+        # XXX assume strongest symbol is what was
+        #     sent, though often not true.
+        winners = numpy.zeros(len(m79))
+        losers = numpy.zeros(len(m79) * 7)
+        for mi in range(0, len(m79)):
+            e = m79[mi]
+            wini = numpy.argmax(e) # guess the winning tone.
+            winners[mi] = e[wini]
+            li = mi * 7
+            losers[li:li+wini] = e[0:wini]
+            losers[li+wini:li+7] = e[wini+1:]
+
     winmean = numpy.mean(winners)
     winstd = numpy.std(winners)
     losemean = numpy.mean(losers)
@@ -1102,12 +1134,6 @@ class FT8:
         # failure.
         return None
 
-    # check the CRC-12
-    cksum = crc(numpy.append(a87[0:72], numpy.zeros(4, dtype=numpy.int32)), crc12poly)
-    if numpy.array_equal(cksum, a87[-12:]) == False:
-        # CRC failed
-        return None
-
     # a87 is 75 bits of msg and 12 bits of CRC.
     # turn the first 72 bits into twelve 6-bit numbers,
     # for compatibility with FT8 unpack().
@@ -1125,6 +1151,14 @@ class FT8:
         twelve.append(x)
 
     msg = self.unpack(twelve)
+
+    # check the CRC-12
+    cksum = crc(numpy.append(a87[0:72], numpy.zeros(4, dtype=numpy.int32)),
+                crc12poly)
+    if numpy.array_equal(cksum, a87[-12:]) == False:
+        # CRC failed. this is pretty rare.
+        print "CRC failed %s" % (msg)
+        return None
 
     if "000AAA" in msg:
         return None
@@ -1186,8 +1220,11 @@ class FT8:
               # XXX why is a[i] sometimes 1.0?
               b = numpy.where(numpy.less(a, 0.99999), a, 0.99)
               c = numpy.log((b + 1.0) / (1.0 - b))
-              # XXX ought to mask this assignment, since nmx[:,i]-1 might be -1
-              e[range(0,87), nmx[:,i]-1] = c
+              # have assign be no-op when nmx[a,b] == 0
+              d = numpy.where(numpy.equal(nmx[:,i], 0),
+                              e[range(0,87), nmx[:,i]-1],
+                              c)
+              e[range(0,87), nmx[:,i]-1] = d
 
           # decide if we are done -- compute the corrected codeword,
           # see if the parity check succeeds.
@@ -1613,7 +1650,8 @@ class FT8Send:
             i += 6
 
         # CRC12
-        cksum = crc(numpy.append(a87[0:72], numpy.zeros(4, dtype=numpy.int32)), crc12poly)
+        cksum = crc(numpy.append(a87[0:72], numpy.zeros(4, dtype=numpy.int32)),
+                    crc12poly)
         a87[-12:] = cksum
 
         # LDPC(174,87)
@@ -1657,7 +1695,7 @@ class FT8Send:
         return cw1
 
     def testsend(self):
-        random.seed(0) # XXX determinism
+        random.seed(0)
         rate = 12000
         
         # G3LTF DL9KR JO40)
@@ -1769,7 +1807,8 @@ if False:
 
     # CRC12
     # this mimics the way the sender computes the 12-bit checksum:
-    c = crc(numpy.append(a87[0:72], numpy.zeros(4, dtype=numpy.int32)), crc12poly)
+    c = crc(numpy.append(a87[0:72], numpy.zeros(4, dtype=numpy.int32)),
+            crc12poly)
     assert numpy.array_equal(c, a87[-12:])
     
     # a87 is 72 bits of msg and 12 bits of CRC.
@@ -1840,8 +1879,9 @@ def benchmark(wsjtfile, verbose):
 def benchmark1(dir, bfiles, verbose):
     global chan
     chan = 0
-    score = 0 # how many we decoded
-    wanted = 0 # how many wsjt-x decoded
+    crcok = 0 # how many we decoded
+    jtscore = 0 # how many we decoded that wsjt-x also decoded
+    jtwanted = 0 # how many wsjt-x decoded
     for bf in bfiles:
         if not bf[0]: # only the short list
             continue
@@ -1852,6 +1892,7 @@ def benchmark1(dir, bfiles, verbose):
         r.verbose = False
         r.gowav(filename, chan)
         all = r.get_msgs()
+        crcok += len(all)
         got = { } # did wsjt-x see this? indexed by msg.
         any_no = False
 
@@ -1861,7 +1902,7 @@ def benchmark1(dir, bfiles, verbose):
             # 161245   2  0.1  955 ~  KJ1J NS9I -06
             wsx = wsx.strip()
             if wsx != "":
-                wanted += 1
+                jtwanted += 1
                 wsx = re.sub(r'  *', ' ', wsx)
                 found = None
                 for dec in all:
@@ -1883,7 +1924,7 @@ def benchmark1(dir, bfiles, verbose):
                     whz = whz * 1000000.0
 
                 if found != None:
-                    score += 1
+                    jtscore += 1
                     if verbose:
                         print("yes %4.0f %s (%.1f %.1f) %s" % (float(whz), wa[2], found.hz(), found.dt, wmsg))
                 else:
@@ -1896,20 +1937,21 @@ def benchmark1(dir, bfiles, verbose):
                 if verbose:
                     print("EXTRA: %6.1f %s" % (dec.hz(), dec.msg))
     if verbose:
-        print("score %d of %d" % (score, wanted))
-    return [ score, wanted ]
+        print("score %d (%d of %d)" % (crcok, jtscore, jtwanted))
+    return [ crcok, jtscore, jtwanted ]
 
 vars = [
-    [ "fine_fstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.66, 0.99 ] ],
-    [ "fine_tstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.66 ] ],
-    [ "fstep", [ 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
-    [ "tstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
-    [ "ldpc_iters", [ 12, 20, 25, 30, 37, 50, 75, 100 ] ],
-    [ "tslop", [ 0.5, 0.75, 0.85, 1.0, 1.25, 1.5, 1.75, 2.0 ] ],
-    [ "fine_tslop", [ 0.33, 0.5, 1.0 ] ],
-    [ "fine_fslop", [ 0.1, 0.33, 0.5, 1.0 ] ],
+    [ "coarse_tstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
+    [ "coarse_tslop", [ 0.75, 1.0, 1.5, 1.75, 2.0, 2.25 ] ],
+    [ "fine_fslop", [ 0, 0.1, 0.33, 0.5, 1.0 ] ],
+    [ "fine_tslop", [ 0, 0.33, 0.5, 1.0 ] ],
+    [ "coarse_no", [ 1, 2, 3, 4 ] ],
+    [ "coarse_fstep", [ 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
     [ "start_adj", [ 0.33, 0.42, 0.5, 0.58, 0.66 ] ],
+    [ "ldpc_iters", [ 12, 20, 25, 30, 37, 50, 75, 100 ] ],
     [ "budget", [ 2, 4, 20 ] ],
+    # [ "fine_fstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.66, 0.99 ] ],
+    # [ "fine_tstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.66 ] ],
     ]
 
 def printvars():
@@ -1934,10 +1976,10 @@ def optimize(wsjtfile):
             exec("%sold = %s" % (xglob, v[0]))
             exec("%s%s = %s" % (xglob, v[0], val))
 
-            [ score, wanted ] = benchmark(wsjtfile, False)
+            [ crcok, jtscore, jtwanted ] = benchmark(wsjtfile, False)
             exec("%s%s = old" % (xglob, v[0]))
             sys.stdout.write("%s=%s : " % (v[0], val))
-            sys.stdout.write("%d\n" % (score))
+            sys.stdout.write("%d %d %d\n" % (crcok, jtscore, jtwanted))
             sys.stdout.flush()
 
 filename = None
