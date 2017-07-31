@@ -25,12 +25,13 @@ from scipy.signal import lfilter
 import ctypes
 import weakaudio
 import weakutil
+import ctypes
 
 #
 # tuning parameters.
 #
 budget = 2 # max seconds of time for decoding.
-coarse_fstep = 0.5 # coarse search granularity, FFT bins
+coarse_fstep = 0.33 # coarse search granularity, FFT bins
 coarse_tstep = 0.5 # coarse search granularity, symbol times
 coarse_tslop = 1.75 # coarse search, +/- start time of 0.5 seconds, in seconds
 coarse_no    = 2 # number of best offsets to use per hz
@@ -39,7 +40,7 @@ fine_tstep = 0.5 # fraction of fine_tslop
 fine_fslop = 0.0 # fraction of coarse_fstep, for hz fine-tuning
 fine_fstep = 0.5 # fraction of fine_fslop
 start_adj = 0.5 # signals seem on avg to start this many seconds late.
-ldpc_iters = 33
+ldpc_iters = 25
 
 # FT8 modulation and protocol definitions.
 # 1920-point FFT at 12000 samples/second
@@ -443,6 +444,258 @@ gen = [
     [ 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0 ],
     [ 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1 ],
 ]
+
+# plain is 87 bits of plain-text.
+# returns a 174-bit codeword.
+# mimics wsjt-x's encode174.f90.
+def ldpc_encode(plain):
+    cw = numpy.zeros(174, dtype=numpy.int32)
+    for i in range(0, 87):
+        x = numpy.multiply(plain, gen[i])
+        cw[i] = numpy.sum(x) % 2
+    cw[87:] = plain
+
+    cw1 = numpy.zeros(174, dtype=numpy.int32)
+    for i in range(0, 174):
+        cw1[colorder[i]] = cw[i]
+
+    return cw1
+
+# given a 174-bit codeword as an array of log-likelihood of zero,
+# return a 87-bit plain text, or zero-length array.
+# this is an implementation of the sum-product algorithm
+# from Sarah Johnson's Iterative Error Correction book.
+# codeword[i] = log ( P(x=0) / P(x=1) )
+def ldpc_decode_python(codeword):
+    # 174 codeword bits
+    # 87 parity checks
+
+    mnx = numpy.array(Mn, dtype=numpy.int32)
+    nmx = numpy.array(Nm, dtype=numpy.int32)
+
+    # Mji
+    # each codeword bit i tells each parity check j
+    # what the bit's log-likelihood of being 0 is
+    # based on information *other* than from that
+    # parity check.
+    m = numpy.zeros((87, 174))
+
+    for i in range(0, 174):
+        for j in range(0, 87):
+            m[j][i] = codeword[i]
+
+    for iter in range(0, ldpc_iters):
+        # Eji
+        # each check j tells each codeword bit i the
+        # log likelihood of the bit being zero based
+        # on the *other* bits in that check.
+        e = numpy.zeros((87, 174))
+
+        # messages from checks to bits.
+        # for each parity check
+        #for j in range(0, 87):
+        #    # for each bit mentioned in this parity check
+        #    for i in Nm[j]:
+        #        if i <= 0:
+        #            continue
+        #        a = 1
+        #        # for each other bit mentioned in this parity check
+        #        for ii in Nm[j]:
+        #            if ii != i:
+        #                a *= math.tanh(m[j][ii-1] / 2.0)
+        #        e[j][i-1] = math.log((1 + a) / (1 - a))
+        for i in range(0, 7):
+            a = numpy.ones(87)
+            for ii in range(0, 7):
+                if ii != i:
+                    x1 = numpy.tanh(m[range(0, 87), nmx[:,ii]-1] / 2.0)
+                    x2 = numpy.where(numpy.greater(nmx[:,ii], 0.0), x1, 1.0)
+                    a = a * x2
+            # avoid divide by zero, i.e. a[i]==1.0
+            # XXX why is a[i] sometimes 1.0?
+            b = numpy.where(numpy.less(a, 0.99999), a, 0.99)
+            c = numpy.log((b + 1.0) / (1.0 - b))
+            # have assign be no-op when nmx[a,b] == 0
+            d = numpy.where(numpy.equal(nmx[:,i], 0),
+                            e[range(0,87), nmx[:,i]-1],
+                            c)
+            e[range(0,87), nmx[:,i]-1] = d
+
+        # decide if we are done -- compute the corrected codeword,
+        # see if the parity check succeeds.
+        # sum the three log likelihoods contributing to each codeword bit.
+        e0 = e[mnx[:,0]-1, range(0,174)]
+        e1 = e[mnx[:,1]-1, range(0,174)]
+        e2 = e[mnx[:,2]-1, range(0,174)]
+        ll = codeword + e0 + e1 + e2
+        # log likelihood > 0 => bit=0.
+        cw = numpy.select( [ ll < 0 ], [ numpy.ones(174, dtype=numpy.int32) ])
+        if ldpc_check(cw):
+            # success!
+            # it's a systematic code, though the plain-text bits are scattered.
+            # collect them.
+            decoded = cw[colorder]
+            decoded = decoded[-87:]
+            return decoded
+
+        # messages from bits to checks.
+        for j in range(0, 3):
+            # for each column in Mn.
+            ll = codeword
+            if j != 0:
+                e0 = e[mnx[:,0]-1, range(0,174)]
+                ll = ll + e0
+            if j != 1:
+                e1 = e[mnx[:,1]-1, range(0,174)]
+                ll = ll + e1
+            if j != 2:
+                e2 = e[mnx[:,2]-1, range(0,174)]
+                ll = ll + e2
+            m[mnx[:,j]-1, range(0,174)] = ll
+                
+
+    # could not decode.
+    return numpy.array([])
+
+# given a 174-bit codeword as an array of log-likelihood of zero,
+# return a 87-bit plain text, or zero-length array.
+# this is an implementation of the bit-flipping algorithm
+# from Sarah Johnson's Iterative Error Correction book.
+# codeword[i] = log ( P(x=0) / P(x=1) )
+def ldpc_decode_flipping(codeword):
+    # turn log-likelihood into hard bits.
+    # > 0 means bit=0, < 0 means bit=1.
+    hard = numpy.less(codeword, 0.0)
+    hard = numpy.array(hard, dtype=numpy.int32) # T/F -> 1/0
+    two = numpy.array([0, 1], dtype=numpy.int32)
+    cw = two[hard]
+
+    for iter in range(0,100):
+        # for each codeword bit,
+        # count of votes for 0 and 1.
+        votes = numpy.zeros((len(codeword), 2))
+
+        # for each parity check equation.
+        for e in Nm:
+            # for each codeword bit mentioned in e.
+            for bi in e:
+                if bi == 0:
+                    continue
+                # value for bi implied by remaining bits.
+                x = 0
+                for i in e:
+                    if i != bi:
+                        x ^= cw[i-1]
+                # the other bits in the equation suggest that
+                # bi must have value x.
+                votes[(bi-1),x] += 1
+
+        for i in range(0, len(cw)):
+            if cw[i] == 0 and votes[i][1] > votes[i][0]:
+                cw[i] = 1
+            elif cw[i] == 1 and votes[i][0] > votes[i][1]:
+                cw[i] = 0
+
+        if ldpc_check(cw):
+            # success!
+            # it's a systematic code, though the plain-text bits are scattered.
+            # collect them.
+            decoded = cw[colorder]
+            decoded = decoded[-87:]
+            return decoded
+        
+    return numpy.array([])
+
+# does a 174-bit codeword pass the LDPC parity checks?
+def ldpc_check(codeword):
+    for e in Nm:
+        x = 0
+        for i in e:
+            if i != 0:
+                x ^= codeword[i-1]
+        if x != 0:
+            return False
+    return True
+
+libldpc = None
+try:
+    libldpc = ctypes.cdll.LoadLibrary("libldpc/libldpc.so")
+except:
+    libldpc = None
+    sys.stderr.write("ft8: using the Python LDPC decoder, not the C decoder.\n")
+
+def ldpc_test():
+    tt = 0.0
+    niters = 200
+    ok = 0
+    for iter in range(0, niters):
+        # ldpc_encode() takes 87 bits.
+        a87 = numpy.random.randint(0, 2, 87)
+        a174 = ldpc_encode(a87)
+        
+        # turn hard bits into 0.99 vs 0.01 log-likelihood,
+        # log( P(0) / P(1) )
+        # log base e.
+        two = numpy.array([ 4.6, -4.6 ], dtype=numpy.int32)
+        ll174 = two[a174]
+
+        # wreck some bits
+        for junk in range(0, 70):
+            ll174[random.randint(0, len(ll174)-1)] = (random.random() - 0.5) * 4
+
+        t0 = time.time()
+        
+        # decode LDPC(174,87)
+        d87 = ldpc_decode(ll174)
+
+        t1 = time.time()
+        tt += t1 - t0
+
+        if numpy.array_equal(a87, d87):
+            ok += 1
+
+    print("success %.2f" % (ok / float(niters)))
+    print("%.6f per call" % (tt / niters))
+    # success 0.88
+    # 0.019423 per call
+
+# codeword is 174 log-likelihoods.
+# return is 87 bits.
+def ldpc_decode_c(codeword):
+    double174 = ctypes.c_double * 174
+    int87 = ctypes.c_int * 87
+
+    c174 = double174()
+    for i in range(0, 174):
+        c174[i] = codeword[i]
+
+    c87 = int87()
+    for i in range(0, 87):
+        c87[i] = -1;
+
+    ok = ctypes.c_int()
+    ok.value = -1
+
+    libldpc.ldpc_decode(c174, ldpc_iters, c87, ctypes.byref(ok))
+
+    if ok == 0:
+        return numpy.array([], dtype=numpy.int32);
+
+    plain = numpy.zeros(87, dtype=numpy.int32);
+    for i in range(0, 87):
+        plain[i] = c87[i];
+
+    return plain
+
+def ldpc_decode(codeword):
+    if libldpc != None:
+        return ldpc_decode_c(codeword)
+    else:
+        return ldpc_decode_python(codeword)
+
+if False:
+    ldpc_test()
+    sys.exit(1)
 
 # the CRC-12 polynomial, from wsjt-x's 0xc06.
 crc12poly = [ 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0 ]
@@ -916,9 +1169,9 @@ class FT8:
 
         if False:
             if dec != None:
-                print "%.1f %s %s" % (time.time() - t0, rr, dec.msg)
+                print("%.1f %s %s" % (time.time() - t0, rr, dec.msg))
             else:
-                print "%.1f %s" % (time.time() - t0, rr)
+                print("%.1f %s" % (time.time() - t0, rr))
 
         if dec != None:
             dec.minute = samples_minute
@@ -928,7 +1181,7 @@ class FT8:
             if not dec.msg in already:
                 already[dec.msg] = True
                 if self.verbose:
-                    print "%6.1f %5d %s" % (hz, offset, dec.msg)
+                    print("%6.1f %5d %s" % (hz, offset, dec.msg))
                 # self.got_msg(dec)
                 thunk(dec)
 
@@ -1260,7 +1513,7 @@ class FT8:
         ll174 = two[a174]
 
     # decode LDPC(174,87)
-    a87 = self.ldpc_decode(ll174)
+    a87 = ldpc_decode(ll174)
     if len(a87) == 0:
         # failure.
         return None
@@ -1288,7 +1541,7 @@ class FT8:
                 crc12poly)
     if numpy.array_equal(cksum, a87[-12:]) == False:
         # CRC failed. this is pretty rare.
-        print "CRC failed %s" % (msg)
+        # print("CRC failed %s" % (msg))
         return None
 
     if "000AAA" in msg:
@@ -1296,162 +1549,6 @@ class FT8:
 
     dec = Decode([hz,hz], msg, 0, twelve, time.time())
     return dec
-
-  # given a 174-bit codeword as an array of log-likelihood of zero,
-  # return a 87-bit plain text, or zero-length array.
-  # this is an implementation of the sum-product algorithm
-  # from Sarah Johnson's Iterative Error Correction book.
-  # codeword[i] = log ( P(x=0) / P(x=1) )
-  def ldpc_decode(self, codeword):
-      # 174 codeword bits
-      # 87 parity checks
-
-      mnx = numpy.array(Mn, dtype=numpy.int32)
-      nmx = numpy.array(Nm, dtype=numpy.int32)
-
-      # Mji
-      # each codeword bit i tells each parity check j
-      # what the bit's log-likelihood of being 0 is
-      # based on information *other* than from that
-      # parity check.
-      m = numpy.zeros((87, 174))
-
-      for i in range(0, 174):
-          for j in range(0, 87):
-              m[j][i] = codeword[i]
-
-      for iter in range(0, ldpc_iters):
-          # Eji
-          # each check j tells each codeword bit i the
-          # log likelihood of the bit being zero based
-          # on the *other* bits in that check.
-          e = numpy.zeros((87, 174))
-
-          # messages from checks to bits.
-          # for each parity check
-          #for j in range(0, 87):
-          #    # for each bit mentioned in this parity check
-          #    for i in Nm[j]:
-          #        if i <= 0:
-          #            continue
-          #        a = 1
-          #        # for each other bit mentioned in this parity check
-          #        for ii in Nm[j]:
-          #            if ii != i:
-          #                a *= math.tanh(m[j][ii-1] / 2.0)
-          #        e[j][i-1] = math.log((1 + a) / (1 - a))
-          for i in range(0, 7):
-              a = numpy.ones(87)
-              for ii in range(0, 7):
-                  if ii != i:
-                      x1 = numpy.tanh(m[range(0, 87), nmx[:,ii]-1] / 2.0)
-                      x2 = numpy.where(numpy.greater(nmx[:,ii], 0.0), x1, 1.0)
-                      a = a * x2
-              # avoid divide by zero, i.e. a[i]==1.0
-              # XXX why is a[i] sometimes 1.0?
-              b = numpy.where(numpy.less(a, 0.99999), a, 0.99)
-              c = numpy.log((b + 1.0) / (1.0 - b))
-              # have assign be no-op when nmx[a,b] == 0
-              d = numpy.where(numpy.equal(nmx[:,i], 0),
-                              e[range(0,87), nmx[:,i]-1],
-                              c)
-              e[range(0,87), nmx[:,i]-1] = d
-
-          # decide if we are done -- compute the corrected codeword,
-          # see if the parity check succeeds.
-          # sum the three log likelihoods contributing to each codeword bit.
-          e0 = e[mnx[:,0]-1, range(0,174)]
-          e1 = e[mnx[:,1]-1, range(0,174)]
-          e2 = e[mnx[:,2]-1, range(0,174)]
-          ll = codeword + e0 + e1 + e2
-          # log likelihood > 0 => bit=0.
-          cw = numpy.select( [ ll < 0 ], [ numpy.ones(174, dtype=numpy.int32) ])
-          if self.ldpc_check(cw):
-              # success!
-              # it's a systematic code, though the plain-text bits are scattered.
-              # collect them.
-              decoded = cw[colorder]
-              decoded = decoded[-87:]
-              return decoded
-
-          # messages from bits to checks.
-          for j in range(0, 3):
-              # for each column in Mn.
-              ll = codeword
-              if j != 0:
-                  e0 = e[mnx[:,0]-1, range(0,174)]
-                  ll = ll + e0
-              if j != 1:
-                  e1 = e[mnx[:,1]-1, range(0,174)]
-                  ll = ll + e1
-              if j != 2:
-                  e2 = e[mnx[:,2]-1, range(0,174)]
-                  ll = ll + e2
-              m[mnx[:,j]-1, range(0,174)] = ll
-                  
-
-      # could not decode.
-      return numpy.array([])
-
-  # given a 174-bit codeword as an array of log-likelihood of zero,
-  # return a 87-bit plain text, or zero-length array.
-  # this is an implementation of the bit-flipping algorithm
-  # from Sarah Johnson's Iterative Error Correction book.
-  # codeword[i] = log ( P(x=0) / P(x=1) )
-  def ldpc_decode_flipping(self, codeword):
-      # turn log-likelihood into hard bits.
-      # > 0 means bit=0, < 0 means bit=1.
-      hard = numpy.less(codeword, 0.0)
-      hard = numpy.array(hard, dtype=numpy.int32) # T/F -> 1/0
-      two = numpy.array([0, 1], dtype=numpy.int32)
-      cw = two[hard]
-
-      for iter in range(0,100):
-          # for each codeword bit,
-          # count of votes for 0 and 1.
-          votes = numpy.zeros((len(codeword), 2))
-
-          # for each parity check equation.
-          for e in Nm:
-              # for each codeword bit mentioned in e.
-              for bi in e:
-                  if bi == 0:
-                      continue
-                  # value for bi implied by remaining bits.
-                  x = 0
-                  for i in e:
-                      if i != bi:
-                          x ^= cw[i-1]
-                  # the other bits in the equation suggest that
-                  # bi must have value x.
-                  votes[(bi-1),x] += 1
-
-          for i in range(0, len(cw)):
-              if cw[i] == 0 and votes[i][1] > votes[i][0]:
-                  cw[i] = 1
-              elif cw[i] == 1 and votes[i][0] > votes[i][1]:
-                  cw[i] = 0
-
-          if self.ldpc_check(cw):
-              # success!
-              # it's a systematic code, though the plain-text bits are scattered.
-              # collect them.
-              decoded = cw[colorder]
-              decoded = decoded[-87:]
-              return decoded
-          
-      return numpy.array([])
-
-  # does a 174-bit codeword pass the LDPC parity checks?
-  def ldpc_check(self, codeword):
-      for e in Nm:
-          x = 0
-          for i in e:
-              if i != 0:
-                  x ^= codeword[i-1]
-          if x != 0:
-              return False
-      return True
 
   # convert packed character to Python string.
   # 0..9 a..z space
@@ -1785,7 +1882,7 @@ class FT8Send:
         a87[-12:] = cksum
 
         # LDPC(174,87)
-        a174 = self.ldpc_encode(a87)
+        a174 = ldpc_encode(a87)
 
         # turn array of 174 bits into 58 3-bit symbols,
         # most significant bit first.
@@ -1815,22 +1912,6 @@ class FT8Send:
         samples = weakutil.fsk(symbols, [tone, tone], 6.25, rate, samples_per_symbol)
 
         return samples
-
-    # plain is 87 bits of plain-text.
-    # returns a 174-bit codeword.
-    # mimics wsjt-x's encode174.f90.
-    def ldpc_encode(self, plain):
-        cw = numpy.zeros(174, dtype=numpy.int32)
-        for i in range(0, 87):
-            x = numpy.multiply(plain, gen[i])
-            cw[i] = numpy.sum(x) % 2
-        cw[87:] = plain
-
-        cw1 = numpy.zeros(174, dtype=numpy.int32)
-        for i in range(0, 174):
-            cw1[colorder[i]] = cw[i]
-
-        return cw1
 
     def testsend(self):
         random.seed(0)
@@ -1879,7 +1960,7 @@ if False:
     for i in range(0, 87):
         plain.append(random.randint(0, 1))
 
-    cw = s.ldpc_encode(plain)
+    cw = ldpc_encode(plain)
 
     # turn hard bits into 0.99 vs 0.01 log-likelihood,
     # log( P(0) / P(1) )
@@ -1887,7 +1968,7 @@ if False:
     two = numpy.array([ 4.6, -4.6 ], dtype=numpy.int32)
     ll174 = two[cw]
 
-    d = r.ldpc_decode(ll174)
+    d = ldpc_decode(ll174)
 
     assert numpy.array_equal(d, plain)
 
@@ -1938,7 +2019,7 @@ if False:
     ll174 = two[a174]
     
     # decode LDPC(174,87)
-    a87 = r.ldpc_decode(ll174)
+    a87 = ldpc_decode(ll174)
 
     # failure -> numpy.array([])
     assert len(a87) == 87
@@ -2079,13 +2160,13 @@ def benchmark1(dir, bfiles, verbose):
     return [ crcok, jtscore, jtwanted ]
 
 vars = [
-    [ "coarse_no", [ 1, 2, 3, 4 ] ],
     [ "fine_fslop", [ 0, 0.1, 0.33, 0.5, 1.0 ] ],
-    [ "coarse_tstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
     [ "coarse_fstep", [ 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
+    [ "coarse_tstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
     [ "fine_tslop", [ 0, 0.33, 0.5, 1.0 ] ],
     [ "coarse_tslop", [ 0.75, 1.0, 1.5, 1.75, 2.0, 2.25 ] ],
     [ "start_adj", [ 0.33, 0.42, 0.5, 0.58, 0.66 ] ],
+    [ "coarse_no", [ 1, 2, 3, 4 ] ],
     [ "ldpc_iters", [ 12, 20, 25, 30, 37, 50, 75, 100 ] ],
     [ "budget", [ 2, 4, 20 ] ],
     # [ "fine_fstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.66, 0.99 ] ],

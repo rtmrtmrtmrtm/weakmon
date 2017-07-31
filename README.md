@@ -34,8 +34,9 @@ If you have a Mac with macports:
   sudo port install py27-serial
 ```
 
-Now compile Phil Karn's Reed-Solomon and convolutional decoders:
+Now compile the LDPC decoder, and Phil Karn's Reed-Solomon and convolutional decoders:
 ```
+  (cd libldpc ; make)
   (cd libfano ; make)
   (cd librs ; make)
 ```
