@@ -33,8 +33,8 @@ budget = 2 # max seconds of time for decoding.
 coarse_fstep = 0.5 # coarse search granularity, FFT bins
 coarse_tstep = 0.5 # coarse search granularity, symbol times
 coarse_tslop = 1.75 # coarse search, +/- start time of 0.5 seconds, in seconds
-coarse_no    = 1 # number of best offsets to use per hz
-fine_tslop = 0.0 # fraction of coarse_tstep, for offset fine-tuning
+coarse_no    = 2 # number of best offsets to use per hz
+fine_tslop = 1.0 # fraction of coarse_tstep, for offset fine-tuning
 fine_tstep = 0.5 # fraction of fine_tslop
 fine_fslop = 0.0 # fraction of coarse_fstep, for hz fine-tuning
 fine_fstep = 0.5 # fraction of fine_fslop
@@ -478,12 +478,18 @@ def normal(x):
 
 # how much of the distribution is < x?
 def problt(x, mean, std):
-    y = normal((x - mean) / std)
+    if std != 0.0:
+        y = normal((x - mean) / std)
+    else:
+        y = 0.5
     return y
 
 # how much of the distribution is > x?
 def probgt(x, mean, std):
-    y = 1.0 - normal((x - mean) / std)
+    if std != 0.0:
+        y = 1.0 - normal((x - mean) / std)
+    else:
+        y = 0.5
     return y
 
 def bit_reverse(x, width):
@@ -563,46 +569,71 @@ class FFTCache:
         self.bin_granules = 4
         self.block_granules = 4
 
-    # return buckets[0..162ish][4] -- i.e. a mini-FFT per symbol.
-    def get(self, hz, start):
-        return self.getmore(hz, start, 0)
+    def make(self, binkey, blockkey):
+        key = str(blockkey) + "-" + str(binkey)
+        if key in self.memo:
+            return self.memo[key]
+        # do all the FFTs for the indicated frequency and time shift.
+        # m[1..79ish][0..fftsize]
+        m = numpy.zeros((len(self.samples) // self.jblock, (self.jblock // 2) + 1))
+        self.memo[key] = m
+        bin_hz = self.jrate / float(self.jblock)
+        freq_off = binkey * (bin_hz / self.bin_granules)
+        ss = weakutil.freq_shift(self.samples, -freq_off, 1.0/self.jrate)
+        bi = 0
+        while True:
+            off = (bi * self.jblock) + (blockkey * (self.jblock / self.block_granules))
+            if off + self.jblock > len(ss):
+                break
+            a = numpy.fft.rfft(ss[off:off+self.jblock])
+            a = abs(a)
+            m[bi] = a
+            bi += 1
+        return m
 
-    # return buckets[0..162ish][8 +/- more] -- i.e. a mini-FFT per symbol.
-    # ordinarily more is 0. it's 1 for guess_freq().
-    def getmore(self, hz, start, more):
+    # return bins[symbol][bin] -- i.e. a mini-FFT per symbol.
+    def get(self, hz, start):
+        bin_hz = self.jrate / float(self.jblock)
+        bin = int(hz / bin_hz)
+        m = self.getall(hz, start)
+        return m[start // self.jblock : , bin : bin+8]
+
+    # return the complete set of FFTs, m[symbol][bin]
+    # hz and start just cause a sub-bin and sub-symbol shift.
+    # that is, the returned array starts near hz=0
+    # and offset=0.
+    def getall(self, hz, start):
         # which quarter-bin?
         bin_hz = self.jrate / float(self.jblock)
         bin = int(hz / bin_hz)
         binfrac = (hz / bin_hz) - bin
         binkey = int(binfrac / (1.0 / self.bin_granules))
-
-        assert bin - more >= 0
         
         # which eighth-block?
         blockoff = start % self.jblock
         blockkey = int(blockoff / (self.jblock / self.block_granules))
+
+        m = self.make(binkey, blockkey)
         
-        key = str(blockkey) + "-" + str(binkey)
+        return m
 
-        if not key in self.memo:
-            # do all the FFTs for the indicated frequency and time shift.
-            # m[1..162ish][0..fftsize]
-            m = numpy.zeros((len(self.samples) // self.jblock, (self.jblock // 2) + 1))
-            self.memo[key] = m
-            freq_off = binkey * (bin_hz / self.bin_granules)
-            ss = weakutil.freq_shift(self.samples, -freq_off, 1.0/self.jrate)
-            bi = 0
-            while True:
-                off = (bi * self.jblock) + (blockkey * (self.jblock / self.block_granules))
-                if off + self.jblock > len(ss):
-                    break
-                a = numpy.fft.rfft(ss[off:off+self.jblock])
-                a = abs(a)
-                m[bi] = a
-                bi += 1
-
-        m = self.memo[key]
-        return m[start // self.jblock : , bin-more : bin+more+8]
+    # subtract a decoded signal, reconstituted from decoded message,
+    # which may help decodes of buried signals.
+    def subtract(self, hz, start, symbols):
+        bin_hz = self.jrate / float(self.jblock)
+        hzgran = bin_hz / self.bin_granules
+        offgran = self.jblock // self.block_granules
+        for binkey in range(0, self.bin_granules):
+            for blockkey in range(0, self.block_granules):
+                key = str(blockkey) + "-" + str(binkey)
+                if key in self.memo:
+                    m = self.memo[key]
+                    # m[0..79ish][0..fftsize]
+                    block0 = (start - offgran*blockkey) // self.jblock
+                    bin0 = int(round((hz - hzgran*binkey) / bin_hz))
+                    #for i in range(0, len(symbols)):
+                    #    m[block0+i][bin0+symbols[i]] = 0
+                    m[range(block0,block0+len(symbols)),symbols+bin0] = 0
 
     def len(self):
         return len(self.samples)
@@ -847,7 +878,8 @@ class FT8:
     # later, captured by start_adj.
     nominal_start = start_pad + int(self.jrate * start_adj)
 
-    coarse_rank = self.coarse(xf, nominal_start)
+    #coarse_rank = self.coarse(xf, nominal_start)
+    coarse_rank = self.ncoarse(xf, nominal_start)
 
     # suppress duplicate message decodes,
     # indexed by message text.
@@ -888,15 +920,24 @@ class FT8:
             else:
                 print "%.1f %s" % (time.time() - t0, rr)
 
-        if dec != None and not dec.msg in already:
-            already[dec.msg] = True
+        if dec != None:
             dec.minute = samples_minute
             dec.dt = ((offset - start_pad) / float(self.jrate))
-            if self.verbose:
-                print "%6.1f %5d %s" % (hz, offset, dec.msg)
-            # self.got_msg(dec)
-            thunk(dec)
+            dec.start = offset
+            self.subtract(dec, xf)
+            if not dec.msg in already:
+                already[dec.msg] = True
+                if self.verbose:
+                    print "%6.1f %5d %s" % (hz, offset, dec.msg)
+                # self.got_msg(dec)
+                thunk(dec)
 
+  # subtract a decoded signal, which may help decodes of buried signals.
+  def subtract(self, dec, xf):
+      snd = FT8Send()
+      s79 = snd.make_symbols(dec.twelve)
+      xf.subtract(dec.hz(), dec.start, s79)
+    
   # find hz with best Costas sync at offset=start.
   # look at frequencies midhz +/ slop,
   # at granule hz increments.
@@ -907,7 +948,7 @@ class FT8:
       
       # a Costas sync array.
       costas_symbols = [ 2, 5, 6, 0, 4, 1, 3 ]
-      costas_array = numpy.ones((7, 8)) * -1
+      costas_array = numpy.ones((7, 8)) * (-1 / 7.0)
       for i in range(0, len(costas_symbols)):
           costas_array[i][costas_symbols[i]] = 1
 
@@ -945,7 +986,7 @@ class FT8:
       
       # a Costas sync array.
       costas_symbols = [ 2, 5, 6, 0, 4, 1, 3 ]
-      costas_array = numpy.ones((7, 8)) * -1
+      costas_array = numpy.ones((7, 8)) * (-1 / 7.0)
       for i in range(0, len(costas_symbols)):
           costas_array[i][costas_symbols[i]] = 1
 
@@ -1015,11 +1056,101 @@ class FT8:
             
     return coarse_rank
 
+  def ncoarse1(self, xf, nominal_start, hzoff, offoff):
+      # prepare a template for 2d correlation containing
+      # the three Costas arrays.
+      costas = [ 2, 5, 6, 0, 4, 1, 3 ]
+      template = numpy.zeros((79, 8))
+      for i0 in [ 0, 36, 72 ]:
+          for i1 in range(0, 7):
+              template[i0+i1,:] = -1 / 7.0
+              template[i0+i1,costas[i1]] = 1
+
+      # m[symbol][bin]
+      m = xf.getall(hzoff, offoff)
+
+      min_hz = 200
+      max_hz = 2500
+
+      bin_hz = self.jrate / float(self.jblock)
+      min_hz_bin = int(min_hz / bin_hz)
+      max_hz_bin = int(max_hz / bin_hz)
+
+      min_sym = int((nominal_start - self.jrate*coarse_tslop) / self.jblock)
+      max_sym = int((nominal_start + self.jrate*coarse_tslop) / self.jblock)
+
+      m = m[min_sym:79+max_sym,min_hz_bin:max_hz_bin]
+      
+      # for each frequency bin, the total signal level for
+      # it and the next eight bins up. we'll divide by this
+      # in order to emphasize the correlation, not the
+      # signal (or noise) level.
+      binsum = numpy.sum(m, axis=0)
+      norm = numpy.zeros(len(binsum))
+      for i in range(0, 8):
+          norm[0:len(norm)-i] += binsum[i:]
+
+      c = scipy.signal.correlate2d(m, template, mode='valid')
+
+      if False:
+          h = [ [ (bi+min_hz_bin) * bin_hz,
+                  (si+min_sym) * self.jblock,
+                  c[si,bi] / norm[bi]
+                ]
+                for si in range(0, c.shape[0]) for bi in range(0, c.shape[1]) ]
+      elif True:
+          # best few starting symbol indices for each frequency bin.
+          # so we only return a few elements per bin, not
+          # one element per bin per starting symbol index.
+          max_si = numpy.argsort(-c, axis=0)
+          h = [ ]
+          for mi in range(0, coarse_no):
+              h += [ [ (bi+min_hz_bin) * bin_hz + hzoff,
+                      (max_si[mi][bi]+min_sym) * self.jblock + offoff,
+                      c[max_si[mi][bi],bi] / norm[bi]
+                    ]
+                    for bi in range(0, max_si.shape[1]) ]
+      else:
+          # best starting symbol index for each frequency bin.
+          # so we only return one element per bin, not
+          # one element per bin per starting symbol index.
+          max_si = numpy.argmax(c, axis=0)
+          h = [ [ (bi+min_hz_bin) * bin_hz + hzoff,
+                  (max_si[bi]+min_sym) * self.jblock + offoff,
+                  c[max_si[bi],bi] / norm[bi]
+                ]
+                for bi in range(0, len(max_si)) ]
+
+      return h
+
+  def ncoarse(self, xf, nominal_start):
+      bin_hz = self.jrate / float(self.jblock)
+
+      h = [ ]
+      for hzoff in numpy.arange(0.0, bin_hz, bin_hz * coarse_fstep):
+          for offoff in range(0, self.jblock, int(self.jblock * coarse_tstep)):
+              hx = self.ncoarse1(xf, nominal_start, hzoff, offoff)
+              h += hx
+
+      h = sorted(h, key = lambda e : -e[2])
+
+      return h
+
   # m79 is 79 8-bucket mini FFTs, for 8-FSK demodulation.
-  # returns None or a Decode
+  # m79[0..79][0..8]
+  # returns None or a Decode.
   def process1(self, m79, hz):
     if len(m79) < 79:
         return
+
+    if False:
+        # AGC so that win/lose mean/std are more meaningful.
+        agcinc = 40
+        for i in range(0, 79, agcinc):
+            i0 = max(i-agcinc//2, 0)
+            i1 = min(i+agcinc+agcinc//2, 79)
+            avg = numpy.mean(m79[i0:i1])
+            m79[i:i+agcinc] /= avg
 
     # mean and std dev of winning and non-winning
     # FFT bins, to help compute probabilities of
@@ -1631,9 +1762,8 @@ class FT8Send:
                 print("pack oops %s %s %s" % (msg, pm, upm))
 
     # twelve[] is 12 6-bit symbols, the result of pack().
-    # tone is Hz of lowest tone.
-    # returns an array of audio samples.
-    def send12(self, twelve, tone, rate):
+    # returns an array of 79 symbols 0..8, ready for FSK.
+    def make_symbols(self, twelve):
         # turn the 72 bits in twelve into an array of bits,
         # most significant bit first.
         # three zero bits at the end, for 75.
@@ -1672,6 +1802,14 @@ class FT8Send:
         symbols[36:43] = costas
         symbols[43:72] = dsymbols[29:]
         symbols[72:] = costas
+
+        return symbols
+
+    # twelve[] is 12 6-bit symbols, the result of pack().
+    # tone is Hz of lowest tone.
+    # returns an array of audio samples.
+    def send12(self, twelve, tone, rate):
+        symbols = self.make_symbols(twelve)
 
         samples_per_symbol = int(round(rate * (1920 / float(12000))))
         samples = weakutil.fsk(symbols, [tone, tone], 6.25, rate, samples_per_symbol)
@@ -1941,12 +2079,12 @@ def benchmark1(dir, bfiles, verbose):
     return [ crcok, jtscore, jtwanted ]
 
 vars = [
-    [ "coarse_tstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
-    [ "coarse_tslop", [ 0.75, 1.0, 1.5, 1.75, 2.0, 2.25 ] ],
-    [ "fine_fslop", [ 0, 0.1, 0.33, 0.5, 1.0 ] ],
-    [ "fine_tslop", [ 0, 0.33, 0.5, 1.0 ] ],
     [ "coarse_no", [ 1, 2, 3, 4 ] ],
+    [ "fine_fslop", [ 0, 0.1, 0.33, 0.5, 1.0 ] ],
+    [ "coarse_tstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
     [ "coarse_fstep", [ 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
+    [ "fine_tslop", [ 0, 0.33, 0.5, 1.0 ] ],
+    [ "coarse_tslop", [ 0.75, 1.0, 1.5, 1.75, 2.0, 2.25 ] ],
     [ "start_adj", [ 0.33, 0.42, 0.5, 0.58, 0.66 ] ],
     [ "ldpc_iters", [ 12, 20, 25, 30, 37, 50, 75, 100 ] ],
     [ "budget", [ 2, 4, 20 ] ],
