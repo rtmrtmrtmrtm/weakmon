@@ -6,7 +6,7 @@
 # user can respond to CQs, but not send CQ.
 # optional automatic band switching when not in QSO.
 #
-# I use jt65.pyi with a K3S via USB, automatically switching
+# I use jt65i.py with a K3S via USB, automatically switching
 # among bands:
 # ./jt65i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23
 #
@@ -17,7 +17,7 @@
 # correctly already, and have VOX if you want to transmit):
 # ./jt65i.py -card 2 0 -out 1 -band 30
 #
-# Select a CQ to reply to by typing the upper-case letter displayed
+# Select a CQ to reply to by typing the letter displayed
 # next to the CQ. jt65i.py automates the rest of the exchange.
 #
 # jt65i.py can use multiple receivers, listening to a different band on
@@ -1170,7 +1170,7 @@ class JT65I:
                 if dec.minute == minute:
                     # display a letter beside each fresh CQ,
                     # so user can select one with a keystroke.
-                    cqch = chr(ord('A') + cqi)
+                    cqch = chr(ord('a') + cqi)
                     start += cqch
                     cqcalls[cqch] = call
                     cqi += 1
