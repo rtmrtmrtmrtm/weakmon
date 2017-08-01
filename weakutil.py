@@ -471,6 +471,7 @@ def rfft(x):
 # to have average absolute value of 1.0.
 # winlen is in units of samples.
 def agc(samples, winlen):
+    assert winlen >= 3 # tukey only works if winlen > 2
     agcwin = scipy.signal.tukey(winlen)
     agcwin = agcwin / numpy.sum(agcwin)
     mavg = numpy.convolve(abs(samples), agcwin)[winlen/2:]
