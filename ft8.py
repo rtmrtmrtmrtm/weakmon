@@ -32,7 +32,7 @@ import ctypes
 #
 budget = 2 # max seconds of time for decoding.
 coarse_fstep = 0.33 # coarse search granularity, FFT bins
-coarse_tstep = 0.5 # coarse search granularity, symbol times
+coarse_tstep = 0.25 # coarse search granularity, symbol times
 coarse_tslop = 1.75 # coarse search, +/- start time of 0.5 seconds, in seconds
 coarse_no    = 2 # number of best offsets to use per hz
 fine_tslop = 1.0 # fraction of coarse_tstep, for offset fine-tuning
@@ -985,6 +985,20 @@ class FT8:
         break
       bufbuf.append(buf)
     samples = numpy.concatenate(bufbuf)
+
+    # trim trailing zeroes that wsjt-x adds to .wav files.
+    i = len(samples)
+    while i > 1000 and numpy.max(samples[i-1:]) == 0.0:
+        if numpy.max(samples[i-1000:]) == 0.0:
+            i -= 1000
+        elif numpy.max(samples[i-100:]) == 0.0:
+            i -= 100
+        elif numpy.max(samples[i-10:]) == 0.0:
+            i -= 10
+        else:
+            i -= 1
+    samples = samples[0:i]
+
     self.process(samples, 0)
 
   def opencard(self, desc):
@@ -1049,6 +1063,9 @@ class FT8:
       self.msgs_lock.release()
       return a
 
+  # run the FT8 decode in a separate process. this yields
+  # much more parallelism for multiple receivers than
+  # Python's threads.
   def process(self, samples, samples_time):
       global very_first_time
       if very_first_time:
@@ -1094,19 +1111,6 @@ class FT8:
 
     t0 = time.time()
 
-    # trim trailing zeroes that wsjt-x adds
-    i = len(samples)
-    while i > 1000 and numpy.max(samples[i-1:]) == 0.0:
-        if numpy.max(samples[i-1000:]) == 0.0:
-            i -= 1000
-        elif numpy.max(samples[i-100:]) == 0.0:
-            i -= 100
-        elif numpy.max(samples[i-10:]) == 0.0:
-            i -= 10
-        else:
-            i -= 1
-    samples = samples[0:i]
-
     assert self.cardrate == self.jrate
 
     # nominal signal start time is half a second into samples[].
@@ -1131,8 +1135,7 @@ class FT8:
     # later, captured by start_adj.
     nominal_start = start_pad + int(self.jrate * start_adj)
 
-    #coarse_rank = self.coarse(xf, nominal_start)
-    coarse_rank = self.ncoarse(xf, nominal_start)
+    coarse_rank = self.coarse(xf, nominal_start)
 
     # suppress duplicate message decodes,
     # indexed by message text.
@@ -1181,7 +1184,7 @@ class FT8:
             if not dec.msg in already:
                 already[dec.msg] = True
                 if self.verbose:
-                    print("%6.1f %5d %s" % (hz, offset, dec.msg))
+                    print("%6.1f %5d %.1f %.0f %s" % (hz, dec.start, dec.dt, dec.snr, dec.msg))
                 # self.got_msg(dec)
                 thunk(dec)
 
@@ -1266,50 +1269,7 @@ class FT8:
       corrs = sorted(corrs, key = lambda e : - e[1])
       return corrs
 
-  # do a coarse pass over the band, looking for
-  # possible signals.
-  # returns ranking.
-  # ranking is array of [ hz, offset, strength ]
-  # nominal start is sample number of a half a second into
-  # the minute, where signals ought to start.
-  def coarse(self, xf, nominal_start):
-    bin_hz = self.jrate / float(self.jblock)
-
-    if False:
-        # exhaustive search.
-        hz0 = 1115
-        dt = 0.3
-
-        # wsjt-x thinks dt=0 means half a second from start of file.
-        off0 = (self.jrate / 2) + self.jrate * float(dt)
-        off0 = int(off0)
-        z = [ ]
-        for hz in numpy.arange(hz0-2, hz0+2, 0.25):
-            for offset in range(off0-3000, off0+3000, 100):
-                z.append( [ hz, offset, 0 ] )
-        return z
-
-    min_hz = 200
-    max_hz = 2500
-
-    coarse_rank = [ ]
-
-    for hz in numpy.arange(min_hz, max_hz, bin_hz * coarse_fstep):
-        # look this many samples before/after nominal_start.
-        slop = self.jrate * coarse_tslop
-
-        # [ [ start, ssum ], ... ]
-        offs = self.best_offsets(xf, hz, nominal_start, slop,
-                                 self.jblock * coarse_tstep)
-
-        for e in offs[0:coarse_no]:
-            coarse_rank.append( [ hz, e[0],  e[1] ] )
-
-    coarse_rank = sorted(coarse_rank, key = lambda e : -e[2])
-            
-    return coarse_rank
-
-  def ncoarse1(self, xf, nominal_start, hzoff, offoff):
+  def coarse1(self, xf, nominal_start, hzoff, offoff):
       # prepare a template for 2d correlation containing
       # the three Costas arrays.
       costas = [ 2, 5, 6, 0, 4, 1, 3 ]
@@ -1376,13 +1336,13 @@ class FT8:
 
       return h
 
-  def ncoarse(self, xf, nominal_start):
+  def coarse(self, xf, nominal_start):
       bin_hz = self.jrate / float(self.jblock)
 
       h = [ ]
       for hzoff in numpy.arange(0.0, bin_hz, bin_hz * coarse_fstep):
           for offoff in range(0, self.jblock, int(self.jblock * coarse_tstep)):
-              hx = self.ncoarse1(xf, nominal_start, hzoff, offoff)
+              hx = self.coarse1(xf, nominal_start, hzoff, offoff)
               h += hx
 
       h = sorted(h, key = lambda e : -e[2])
@@ -1441,6 +1401,22 @@ class FT8:
     winstd = numpy.std(winners)
     losemean = numpy.mean(losers)
     losestd = numpy.std(losers)
+
+    # estimate SNR.
+    # mimics wsjt-x code, but the results are not very close.
+    sigi = numpy.argmax(m79, axis=1)
+    noisei = numpy.mod(sigi + 4, 8)
+    noises = m79[range(0, 79), noisei]
+    noise = numpy.mean(noises * noises) # square yields power
+    sigs = numpy.amax(m79, axis=1) # guess correct tone
+    sig = numpy.mean(sigs * sigs)
+    rawsnr = sig / noise
+    rawsnr -= 1 # turn (s+n)/n into s/n
+    if rawsnr < 0.1:
+        rawsnr = 0.1
+    rawsnr /= (2500.0 / 2.7) # 2.7 hz noise b/w -> 2500 hz b/w
+    snr = 10 * math.log10(rawsnr)
+    snr += 3
 
     # get rid of the three 7-symbol Costas arrays.
     m58 = numpy.concatenate( [ m79[7:36], m79[43:72] ] )
@@ -1547,7 +1523,7 @@ class FT8:
     if "000AAA" in msg:
         return None
 
-    dec = Decode([hz,hz], msg, 0, twelve, time.time())
+    dec = Decode([hz,hz], msg, snr, twelve, time.time())
     return dec
 
   # convert packed character to Python string.
@@ -1769,9 +1745,19 @@ class FT8Send:
         g = g.upper()
 
         if g[0] == '-':
-            return NGBASE + 1 + int(g[1:])
+            snr = int(g[1:])
+            if snr == 0:
+                snr = 1
+            if snr > 29:
+                snr = 29
+            return NGBASE + 1 + snr
         if g[0:2] == 'R-':
-            return NGBASE + 31 + int(g[2:])
+            snr = int(g[2:])
+            if snr == 0:
+                snr = 1
+            if snr > 29:
+                snr = 29
+            return NGBASE + 31 + snr
         if g == "RO":
             return NGBASE + 62
         if g == "RRR":
@@ -2160,14 +2146,14 @@ def benchmark1(dir, bfiles, verbose):
     return [ crcok, jtscore, jtwanted ]
 
 vars = [
-    [ "fine_fslop", [ 0, 0.1, 0.33, 0.5, 1.0 ] ],
-    [ "coarse_fstep", [ 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
-    [ "coarse_tstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
     [ "fine_tslop", [ 0, 0.33, 0.5, 1.0 ] ],
     [ "coarse_tslop", [ 0.75, 1.0, 1.5, 1.75, 2.0, 2.25 ] ],
     [ "start_adj", [ 0.33, 0.42, 0.5, 0.58, 0.66 ] ],
+    [ "coarse_fstep", [ 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
+    [ "coarse_tstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.75, 1.0 ] ],
     [ "coarse_no", [ 1, 2, 3, 4 ] ],
     [ "ldpc_iters", [ 12, 20, 25, 30, 37, 50, 75, 100 ] ],
+    [ "fine_fslop", [ 0, 0.1, 0.33, 0.5, 1.0 ] ],
     [ "budget", [ 2, 4, 20 ] ],
     # [ "fine_fstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.66, 0.99 ] ],
     # [ "fine_tstep", [ 0.12, 0.19, 0.25, 0.33, 0.5, 0.66 ] ],
