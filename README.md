@@ -41,13 +41,13 @@ Now compile the LDPC decoder, and Phil Karn's Reed-Solomon and convolutional dec
   (cd librs ; make)
 ```
 
-At this point you should be able to run jt65i.py, wsprmon.py, etc. with
+At this point you should be able to run ft8i.py, jt65i.py, wsprmon.py, etc. with
 no arguments, and see lists of available sound cards and serial ports,
 like this:
 
 ```
-% python2.7 jt65i.py
-usage: jt65i.py [-h] [-card CARD CHAN] [-cat TYPE DEV] [-levels] [-v]
+% python2.7 ft8i.py
+usage: ft8i.py [-h] [-card CARD CHAN] [-cat TYPE DEV] [-levels] [-v]
                 [-band BAND] [-bands BANDS] [-card2 CARD CHAN]
                 [-card3 CARD CHAN] [-card4 CARD CHAN] [-out CARD] [-test]
 sound card numbers for -card and -out:
@@ -65,46 +65,46 @@ radio types for -cat: k3 rx340 8711 sdrip sdriq r75 r8500 ar5000 eb200 sdrplay p
 ```
 
 If you've hooked up a transceiver with VOX to your computer's sound
-card, and set it to 14.076 and USB, you can use jt65i.py with it like
+card, and set it to 14.074 and USB, you can use ft8i.py like
 this:
 
 ```
-  % python2.7 jt65i.py -card 2 0 -out 1 -band 20
+  % python2.7 ft8i.py -card 2 0 -out 1 -band 20
 
 ```
 
 The "-card 2 0" means the left (0) channel of sound card number 2 (as
-listed in jt65i.py's "usage" output). The "-out 1" means sound card 1.
+listed in ft8i.py's "usage" output). The "-out 1" means sound card 1.
 
-jt65i.py will display decoded JT65 messages, and mark each received CQ
+ft8i.py will display decoded messages, and mark each received CQ
 with a letter; type the letter to respond to the CQ.
 
-jt65i.py can automatically switch among a set of bands, once per
+ft8i.py can automatically switch among a set of bands, once per
 minute. For example, this command will tell a K3 to scan 30, 20, and
 17 meters for JT65.
 
 ```
-  % python2.7 jt65i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -bands "30 20 17"
+  % python2.7 ft8i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -bands "30 20 17"
 ```
 
-jt65i.py can listen to multiple receivers at the same time, so that
+ft8i.py can listen to multiple receivers at the same time, so that
 you can look for CQs on more than one band simultaneously. For
 example, for a K3 with a sub-receiver:
 
 ```
-  % python2.7 jt65i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 2 1 -bands "40 30 20"
+  % python2.7 ft8i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 2 1 -bands "40 30 20"
 ```
 
 For a K3 (without sub-receiver) and an RFSpace NetSDR/CloudIQ/SDR-IP:
 
 ```
-  % python2.7 jt65i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 sdrip 192.168.3.130 -bands "40 30 20"
+  % python2.7 ft8i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 sdrip 192.168.3.130 -bands "40 30 20"
 ```
 
 For a K3 with sub-receiver and an RFSpace NetSDR/CloudIQ/SDR-IP (i.e. three receivers):
 
 ```
-  % python2.7 jt65i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 2 1 -card3 sdrip 192.168.3.130 -bands "40 30 20"
+  % python2.7 ft8i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 2 1 -card3 sdrip 192.168.3.130 -bands "40 30 20"
 ```
 
 You may need to take steps to give yourself permission to use the
@@ -113,7 +113,7 @@ group).
 
 The aprsmon.py, jt65mon.py, wsprmon.py, wwvbmon.py, and wwvmon.py
 programs each decode and display receptions for the respective format.
-They use argument conventions similar to those of jt65i.py.
+They use argument conventions similar to those of ft8i.py.
 
 These programs can switch among bands on a number of radio types:
 Elecraft K3, Ten-Tec RX-340, Watkins Johnson WJ-8711, RFSpace SDR-IP,
@@ -128,7 +128,7 @@ or to report to wsprnet and pskreporter. Do this by copying
 weak.cfg.example to weak.cfg, un-commenting the mycall and mygrid
 lines, and changing them to your callsign and grid.
 
-Your computer's clock must be correct to within a second for WSPR,
+Your computer's clock must be correct to within about second for WSPR,
 JT65, and FT8; try ntp.
 
 This software surely contains errors, particularly since I'm no expert
