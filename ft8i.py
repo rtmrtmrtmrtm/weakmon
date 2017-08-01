@@ -878,7 +878,7 @@ class FT8I:
         ts = re.sub(r':[0-9][0-9]$', '', ts) # delete seconds
 
         f = open(self.logname, "a")
-        f.write("%-9s %s %6.3f 599 JT X     %s, %s, %s, %.0f, %s\n" % (call,
+        f.write("%-9s %s %6.3f 599 FT X     %s, %s, %s, %.0f, %s\n" % (call,
                                                                     ts,
                                                                     freq,
                                                                     entity,
