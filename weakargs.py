@@ -24,6 +24,12 @@ def stdparse(description):
   parser = argparse.ArgumentParser(description=description)
   parser.add_argument("-card", nargs=2, metavar=('CARD', 'CHAN'), action=Once)
   parser.add_argument("-cat", nargs=2, metavar=('TYPE', 'DEV'), action=Once)
+  parser.add_argument("-card2", nargs=2, metavar=('CARD', 'CHAN'))
+  parser.add_argument("-card3", nargs=2, metavar=('CARD', 'CHAN'))
+  parser.add_argument("-card4", nargs=2, metavar=('CARD', 'CHAN'))
+  parser.add_argument("-cat2", nargs=2, metavar=('TYPE', 'DEV'))
+  parser.add_argument("-cat3", nargs=2, metavar=('TYPE', 'DEV'))
+  parser.add_argument("-cat4", nargs=2, metavar=('TYPE', 'DEV'))
   parser.add_argument("-levels", action='store_true')
   parser.add_argument("-v", action='store_true')
 
