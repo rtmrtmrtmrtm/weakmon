@@ -61,7 +61,7 @@ import struct
 
 # automatically switch only among these bands.
 # auto_bands = [ "160", "80", "60", "40", "30", "20", "17", "15", "12", "10" ]
-auto_bands = [ "40", "30", "20", "17" ]
+auto_bands = [ "40", "30", "20", "17", "15", "12", "10" ]
 
 b2f = { "160" : 1.840, "80" : 3.573, "40" : 7.074,
         "30" : 10.136, "20" : 14.074,
@@ -193,7 +193,7 @@ def terminal_size(fd):
     return [ int(cr[0]), int(cr[1]) ]
 
 class FT8I:
-    def __init__(self, outcard, descs, cat, oneband):
+    def __init__(self, outcard, cards, cats, oneband):
         self.mycall = weakutil.cfg("ft8i", "mycall")
         self.mygrid = weakutil.cfg("ft8i", "mygrid")
 
@@ -206,14 +206,9 @@ class FT8I:
         self.cqname = "ft8-cq.txt"
         self.jtname = "ft8"
 
-        self.card_descs = descs
-
-        if cat != None:
-            self.cat = weakcat.open(cat)
-            self.cat.sync()
-            self.cat.set_usb_data()
-        else:
-            self.cat = None
+        self.card_args = cards
+        self.cat_args = cats
+        self.please_quit = False
 
         # self.bandinfo[band] is an array of [ minute, count ].
         # used to pick which band to listen to.
@@ -485,10 +480,10 @@ class FT8I:
                     thisband = "40"
                 else:
                     thisband = "10"
-            if self.rcat[i] != None:
-                self.rcat[i].setf(i, int(b2f[thisband] * 1000000.0))
-        if self.cat != None:
-            self.cat.sync()
+            if self.cats[i] != None:
+                self.cats[i].setf(i, int(b2f[thisband] * 1000000.0))
+        if self.cats[0] != None:
+            self.cats[0].sync()
 
     # set up frequencies for a QSO minute during which we receive.
     def qso_receiving(self, band):
@@ -496,10 +491,10 @@ class FT8I:
         for i in range(0, len(self.r)):
             self.set_band(minute, i, band)
             self.r[i].enabled = (i == 0)
-            if self.rcat[i] != None:
-                self.rcat[i].setf(i, int(b2f[band] * 1000000.0))
-        if self.cat != None:
-            self.cat.sync()
+            if self.cats[i] != None:
+                self.cats[i].setf(i, int(b2f[band] * 1000000.0))
+        if self.cats[0] != None:
+            self.cats[0].sync()
 
     # what band was card ci tuned to during a particular minute?
     # returns a string, e.g. "20", or None.
@@ -602,9 +597,9 @@ class FT8I:
 
         for ci in range(0, len(self.r)):
             band = bands[ci]
-            if self.rcat[ci] != None:
-                self.rcat[ci].setf(ci, int(b2f[band] * 1000000.0))
-                self.rcat[ci].sync()
+            if self.cats[ci] != None:
+                self.cats[ci].setf(ci, int(b2f[band] * 1000000.0))
+                self.cats[ci].sync()
 
     # if the user has asked to respond to a CQ, do it.
     def one(self):
@@ -1009,11 +1004,11 @@ class FT8I:
     # open sound card, create ft8 instance.
     def soundsetup(self):
         # receive card(s)
-        self.r = [ ]
-        self.rcat = [ ]
-        self.rth = [ ]
-        for ci in range(len(self.card_descs)):
-            desc = self.card_descs[ci]
+        self.r = [ ]    # FT8 instance per sound card
+        self.cats = [ ] # CAT receiver (or transceiver) per sound card
+        self.rth = [ ]  # thread that runs the FT8
+        for ci in range(len(self.card_args)):
+            desc = self.card_args[ci]
             r = ft8.FT8()
             self.r.append(r)
             r.cardrate = self.rate
@@ -1022,13 +1017,21 @@ class FT8I:
             th.daemon = True
             th.start()
             self.rth.append(th)
-            if ci == 0:
-                self.rcat.append(self.cat)
-            elif ci == 1 and self.cat != None and self.cat.type == "k3" and desc[0][0].isdigit():
-                # assume -card2 is the K3 sub-receiver.
-                self.rcat.append(self.cat)
+            if ci > 0 and self.cat_args[ci][0] == "k3" and self.cat_args[ci][1] == "-":
+                # -cat k3 -
+                # this is for the sub-receiver, and card zero must be the main K3.
+                if self.cat_args[0][0] == "k3":
+                    self.cats.append(self.cats[0])
+                else:
+                    sys.stderr.write("-cat k3 - can only be used if it follows -cat k3 /dev/...\n")
+                    sys.exit(1)
+            elif self.cat_args[ci] != None:
+                self.cats.append(weakcat.open(self.cat_args[ci]))
+            elif self.oneband != None:
+                self.cats.append(None)
             else:
-                self.rcat.append(weakcat.open(desc))
+                sys.stderr.write("card but no cat\n")
+                sys.exit(1)
 
         # send card
         if self.outcard != None:
@@ -1069,6 +1072,17 @@ class FT8I:
         th.daemon = True
         th.start()
 
+        # transmit if the user asks.
+        th = threading.Thread(target=self.one_loop)
+        th.daemon = True
+        th.start()
+
+        while True:
+            if self.please_quit:
+                sys.exit(0)
+            time.sleep(0.2)
+
+    def one_loop(self):
         while True:
             self.one()
 
@@ -1103,6 +1117,8 @@ class FT8I:
             self.keybuf_lock.acquire()
             self.keybuf = self.keybuf + ch
             self.keybuf_lock.release()
+            if ch == 'Q':
+                self.please_quit = True
 
     def display_loop(self):
         f = os.fdopen(1, "w", 8192)
@@ -1281,19 +1297,43 @@ def main():
     parser.add_argument("-card2", nargs=2, metavar=('CARD', 'CHAN'))
     parser.add_argument("-card3", nargs=2, metavar=('CARD', 'CHAN'))
     parser.add_argument("-card4", nargs=2, metavar=('CARD', 'CHAN'))
+    parser.add_argument("-cat2", nargs=2, metavar=('TYPE', 'DEV'))
+    parser.add_argument("-cat3", nargs=2, metavar=('TYPE', 'DEV'))
+    parser.add_argument("-cat4", nargs=2, metavar=('TYPE', 'DEV'))
     parser.add_argument("-out", metavar="CARD")
     parser.add_argument("-test", action='store_true')
     args = weakargs.parse_args(parser)
 
-    descs = [ ]
-    if args.card != None:
-        descs.append(args.card)
-        if args.card2 != None:
-            descs.append(args.card2)
-            if args.card3 != None:
-                descs.append(args.card3)
-                if args.card4 != None:
-                    descs.append(args.card4)
+    cards = [ 
+        args.card,
+        args.card2,
+        args.card3,
+        args.card4,
+    ]
+    cats = [ 
+        args.cat,
+        args.cat2,
+        args.cat3,
+        args.cat4,
+    ]
+
+    while len(cards) > 0 and cards[-1] == None and cats[-1] == None:
+        cards = cards[0:-1]
+        cats = cats[0:-1]
+
+    for i in range(0, len(cats)):
+        if cats[i] != None and cards[i] == None:
+            if i == 0:
+                parser.error("-cat but no -card")
+            else:
+                parser.error("-cat%d but no -card%d" % (i+1, i+1))
+
+    for i in range(1, len(cards)):
+        if cards[i] != None and cards[i-1] == None:
+            if i == 1:
+                parser.error("-card%d but missing -card" % (i+1))
+            else:
+                parser.error("-card%d but missing -card%d" % (i+1, i))
 
     if args.band != None and not args.band in b2f:
         parser.error("band %s not recognized" % (args.band))
@@ -1301,16 +1341,20 @@ def main():
     if args.test:
         if args.out == None:
             parser.error("-test requires -out")
-        ft8i = FT8I(args.out, descs,
-                      args.cat, args.band)
+        ft8i = FT8I(args.out, cards, cats, args.band)
         ft8i.test_send()
         sys.exit(0)
         
     if args.card == None:
         parser.error("ft8i requires -card")
       
-    if args.cat == None and args.band == None:
-        parser.error("ft8i needs either -cat or -band")
+    if args.band == None:
+        for i in range(0, len(cards)):
+            if cards[i] != None and cats[i] == None:
+                if i == 0:
+                    parser.error("ft8i needs either -cat or -band")
+                else:
+                    parser.error("ft8i needs either -cat%d or -band" % (i + 1))
 
     # -band "40 30 20"
     # sets the list of bands among which to automatically switch.
@@ -1323,8 +1367,7 @@ def main():
                 parser.error("band %s not recognized" % (band))
         auto_bands = a
 
-    ft8i = FT8I(args.out, descs,
-                  args.cat, args.band)
+    ft8i = FT8I(args.out, cards, cats, args.band)
 
     ft8i.go()
     ft8i.close()
