@@ -92,7 +92,7 @@ you can look for CQs on more than one band simultaneously. For
 example, for a K3 with a sub-receiver:
 
 ```
-  % python2.7 ft8i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 2 1 -bands "40 30 20"
+  % python2.7 ft8i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 2 1 -cat2 k3 - -bands "40 30 20"
 ```
 
 For a K3 (without sub-receiver) and an RFSpace NetSDR/CloudIQ/SDR-IP:
@@ -104,7 +104,7 @@ For a K3 (without sub-receiver) and an RFSpace NetSDR/CloudIQ/SDR-IP:
 For a K3 with sub-receiver and an RFSpace NetSDR/CloudIQ/SDR-IP (i.e. three receivers):
 
 ```
-  % python2.7 ft8i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 2 1 -card3 sdrip 192.168.3.130 -bands "40 30 20"
+  % python2.7 ft8i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 2 1 -cat2 k3 - -card3 sdrip 192.168.3.130 -bands "40 30 20"
 ```
 
 You may need to take steps to give yourself permission to use the

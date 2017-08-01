@@ -26,13 +26,13 @@
 # with SDRs that ft8i.py knows how to control.
 #
 # For a K3 with a sub-receiver:
-# ./ft8i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 2 1 -bands "40 30 20"
+# ./ft8i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 2 1 -cat2 k3 - -bands "40 30 20"
 #
 # For a K3 without sub-receiver, and an RFSpace NetSDR/CloudIQ/SDR-IP:
 # ./ft8i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 sdrip 192.168.3.130 -bands "40 30 20"
 #
 # For a K3 with sub-receiver and an RFSpace NetSDR/CloudIQ/SDR-IP (i.e. three receivers):
-# ./ft8i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 2 1 -card3 sdrip 192.168.3.130 -bands "40 30 20"
+# ./ft8i.py -card 2 0 -out 1 -cat k3 /dev/cu.usbserial-A503XT23 -card2 2 1 -cat2 k3 - -card3 sdrip 192.168.3.130 -bands "40 30 20"
 #
 # Robert Morris, AB1HL
 #
@@ -1018,7 +1018,7 @@ class FT8I:
             th.start()
             self.rth.append(th)
             if ci > 0 and self.cat_args[ci][0] == "k3" and self.cat_args[ci][1] == "-":
-                # -cat k3 -
+                # -catX k3 -
                 # this is for the sub-receiver, and card zero must be the main K3.
                 if self.cat_args[0][0] == "k3":
                     self.cats.append(self.cats[0])
