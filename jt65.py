@@ -66,6 +66,7 @@ class Decode:
         self.snr = snr
         self.minute = minute
         self.start = start
+        self.dt = 0.0 # XXX
         self.twelve = twelve
         self.decode_time = decode_time
 
@@ -169,7 +170,7 @@ class JT65:
       self.start_time = now - gm.tm_sec
 
   # seconds per cycle
-  def cycle_length(self):
+  def cycle_seconds(self):
       return 60
 
   # return the minute number for t, a UNIX time in seconds.
@@ -178,6 +179,10 @@ class JT65:
       dt = t - self.start_time
       dt /= 60.0
       return int(dt)
+
+  # convert cycle number to UNIX time.
+  def minute2time(self, m):
+      return (m * 60) + self.start_time
 
   def second(self, t):
       dt = t - self.start_time
@@ -1536,10 +1541,11 @@ class JT65Send:
     # twelve[] is 12 6-bit symbols to send.
     # tone is Hz of sync tone.
     # returns an array of audio samples.
-    def send12(self, twelve, tone, rate, symsamples):
+    def send12(self, twelve, tone, rate):
         synced = self.symbols(twelve)
 
-        samples = self.fsk(synced, [tone, tone], 2.6918, rate, symsamples)
+        samples_per_symbol = int(round(rate * (4096 / 11025.0)))
+        samples = self.fsk(synced, [tone, tone], 2.6918, rate, samples_per_symbol)
 
         return samples
 
@@ -1547,25 +1553,25 @@ class JT65Send:
         random.seed(0) # XXX determinism
         
         # G3LTF DL9KR JO40
-        x1 = self.send12([61, 37, 30, 28, 9, 27, 61, 58, 26, 3, 49, 16], 1000, 11025, 4096)
+        x1 = self.send12([61, 37, 30, 28, 9, 27, 61, 58, 26, 3, 49, 16], 1000, 11025)
         x1 = numpy.concatenate(([0]*1,  x1, [0]*(8192-1) ))
         #rv = numpy.concatenate( [ [random.random()]*4096 for i in range(0, 128) ] )
         #x1 = x1 * rv
 
         # RA3Y VE3NLS 73
-        x2 = self.send12([46, 6, 32, 22, 55, 20, 11, 32, 53, 23, 59, 16], 1050, 11025, 4096)
+        x2 = self.send12([46, 6, 32, 22, 55, 20, 11, 32, 53, 23, 59, 16], 1050, 11025)
         x2 = numpy.concatenate(([0]*4096,  x2, [0]*(8192-4096) ))
         #rv = numpy.concatenate( [ [random.random()]*4096 for i in range(0, 128) ] )
         #x2 = x2 * rv
 
         # CQ DL7ACA JO40
-        x3 = self.send12([62, 32, 32, 49, 37, 27, 59, 2, 30, 19, 49, 16], 1100, 11025, 4096)
+        x3 = self.send12([62, 32, 32, 49, 37, 27, 59, 2, 30, 19, 49, 16], 1100, 11025)
         x3 = numpy.concatenate(([0]*5120,  x3, [0]*(8192-5120) ))
         #rv = numpy.concatenate( [ [random.random()]*4096 for i in range(0, 128) ] )
         #x3 = x3 * rv
 
         # VA3UG   F1HMR 73  
-        x4 = self.send12([52, 54, 60, 12, 55, 54, 7, 19, 2, 23, 59, 16], 1150, 11025, 4096)
+        x4 = self.send12([52, 54, 60, 12, 55, 54, 7, 19, 2, 23, 59, 16], 1150, 11025)
         x4 = numpy.concatenate(([0]*1,  x4, [0]*(8192-1) ))
         #rv = numpy.concatenate( [ [random.random()]*4096 for i in range(0, 128) ] )
         #x4 = x4 * rv
@@ -1615,7 +1621,7 @@ if False:
   s = JT65Send()
 
   # G3LTF DL9KR JO40
-  x = s.send12([61, 37, 30, 28, 9, 27, 61, 58, 26, 3, 49, 16], 1000, 11025, 4096)
+  x = s.send12([61, 37, 30, 28, 9, 27, 61, 58, 26, 3, 49, 16], 1000, 11025)
 
   # inject some bad symbols
   # note x[] has sync in it.

@@ -919,6 +919,10 @@ class FT8:
   def close(self):
       pass
 
+  # seconds per cycle
+  def cycle_seconds(self):
+      return 15
+
   # return the minute number for t, a UNIX time in seconds.
   # truncates down, so best to pass a time mid-way through a minute.
   # returns only even minutes.
@@ -1894,7 +1898,7 @@ class FT8Send:
     def send12(self, twelve, tone, rate):
         symbols = self.make_symbols(twelve)
 
-        samples_per_symbol = int(round(rate * (1920 / float(12000))))
+        samples_per_symbol = int(round(rate * (1920 / 12000.0)))
         samples = weakutil.fsk(symbols, [tone, tone], 6.25, rate, samples_per_symbol)
 
         return samples
