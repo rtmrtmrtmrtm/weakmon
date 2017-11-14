@@ -19,6 +19,8 @@ import scipy.fftpack
 import wave
 import time
 import sys
+import math
+import random
 
 def cfg(program, key):
     cfg = configparser.SafeConfigParser()
@@ -77,6 +79,47 @@ def freq_shift(x, f_shift, dt):
     h = scipy.signal.hilbert(x0)*lo
     ret = h[:N_orig].real
     return ret
+
+def one_test_freq_shift(rate, hz, n, f_shift):
+    t1 = costone(rate, hz, n)
+
+    t2 = freq_shift(t1, f_shift, 1.0 / rate)
+
+    expected = costone(rate, hz + f_shift, n)
+
+    if False:
+        import matplotlib.pyplot as plt
+        i = 1000
+        j = i + 1000
+        plt.plot(t1[i:j])
+        plt.plot(t2[i:j])
+        plt.plot(expected[i:j])
+        plt.show()
+
+    diff = t2 - expected
+    x = math.sqrt(numpy.mean(diff * diff))
+    return x
+
+def test_freq_shift():
+    x = one_test_freq_shift(12000, 511, 12000*13, 6.25 / 4)
+    print x
+
+    t1 = numpy.random.rand(12000 * 13)
+    t1 += costone(12000, 5970, 12000 * 13)
+    t1 += costone(12000, 511, 12000 * 13)
+    #t1 += costone(12000, 10, 12000 * 13)
+
+    t2 = freq_shift(t1, 60, 1.0 / 12000)
+
+    t3 = freq_shift(t2, -60, 1.0 / 12000)
+
+    diff = t3 - t1
+    x = math.sqrt(numpy.mean(diff * diff))
+    print x
+
+    writewav1(t1, "t1.wav", 12000)
+    writewav1(t2, "t2.wav", 12000)
+    writewav1(t3, "t3.wav", 12000)
 
 # caller supplies two shifts, in hza[0] and hza[1].
 # shift x[0] by hza[0], ..., x[-1] by hza[1]
@@ -261,15 +304,103 @@ def moving_average(a, n):
     return ret[n - 1:] / n
 
 # IQ -> USB
-def iq2usb(iq):
+# the result is bad at the start and end,
+# so not ideal for processing a sequence of
+# sample blocks.
+def iq2usb_internal(iq):
     ii = iq.real
     qq = iq.imag
-    ii = numpy.real(scipy.signal.hilbert(ii)) # delay to match hilbert(Q)
-    qq = numpy.imag(scipy.signal.hilbert(qq))
+    nn = len(iq)
+    ii = numpy.real(scipy.signal.hilbert(ii, nn)) # delay to match hilbert(Q)
+    qq = numpy.imag(scipy.signal.hilbert(qq, nn))
     ssb = numpy.subtract(ii, qq) # usb from phasing method
     #ssb = numpy.add(ii, qq) # lsb from phasing method
     assert len(iq) == len(ssb)
     return ssb
+
+# do it in overlapping smallish chunks, so the FFTs are smaller
+# and faster.
+# always returns the same number of samples as you give it.
+def iq2usb(iq):
+    guard = 256 # overlap between successive chunks
+    chunksize = 8192 - 2*guard
+
+    bufbuf = [ ]
+    oi = 0 # output index, == sum of bufbuf[] lengths
+    while oi < len(iq):
+        sz = min(chunksize, len(iq) - oi)
+        buf = iq[oi:oi+sz]
+
+        # pad so always chunksize
+        if len(buf) < chunksize:
+            buf = numpy.append(buf, numpy.zeros(chunksize - len(buf)))
+        
+        # prepend the guard
+        if oi >= guard:
+            buf = numpy.append(iq[oi-guard:oi], buf)
+        else:
+            buf = numpy.append(numpy.zeros(guard), buf)
+
+        # append the guard
+        n1 = min(guard, len(iq) - (oi + chunksize))
+        n1 = max(n1, 0)
+        if n1 > 0:
+            buf = numpy.append(buf, iq[oi+chunksize:oi+chunksize+n1])
+        if n1 < guard:
+            buf = numpy.append(buf, numpy.zeros(guard - n1))
+
+        assert len(buf) == chunksize + 2*guard
+
+        z = iq2usb_internal(buf)
+
+        assert len(z) == chunksize + 2*guard
+
+        bufbuf.append(z[guard:-guard])
+        oi += len(bufbuf[-1])
+
+    buf = numpy.concatenate(bufbuf)
+    assert len(buf) >= len(iq)
+    buf = buf[0:len(iq)]
+    return buf
+
+# simple measure of distortion introduced by iq2usb.
+def one_test_iq2usb(rate, hz, n):
+    ii = costone(rate, hz, n)
+    qq = sintone(rate, hz, n)
+    iq = ii + 1j*qq
+    usb = iq2usb(iq)
+
+    # usb ought to be 2*ii
+    
+    if False:
+        import matplotlib.pyplot as plt
+        plt.plot(ii[0:100])
+        plt.plot(qq[0:100])
+        plt.plot(usb[0:100])
+        plt.show()
+
+    diff = (usb / 2.0) - ii
+    x = math.sqrt(numpy.mean(diff * diff))
+    return x
+
+# original (no chunking):
+#   32000 511 1333: 0.038 0.001
+#   32000 511 27777: 0.010 0.016
+#   32000 511 320001: 0.000 6.345
+# chunksize 8192, guard 128
+#   32000 511 1333: 0.023 0.002
+#   32000 511 27777: 0.006 0.006
+#   32000 511 320001: 0.002 0.041
+def test_iq2usb():
+    for [ rate, hz, n ] in [
+            [ 32000, 511, 1333 ],
+            [ 32000, 511, 27777 ],
+            [ 32000, 511, 320001 ]
+            ]:
+        t0 = time.time()
+        x = one_test_iq2usb(rate, hz, n)
+        t1 = time.time()
+        print "%d %d %d: %.3f %.3f" % (rate, hz, n, x, t1 - t0)
 
 resample_interp = False # use numpy.interp()? vs scipy.signal.resample()
 
@@ -347,6 +478,19 @@ class Resampler:
         self.nin = 0
         self.nout = 0
 
+    # how much will output be delayed?
+    # in units of output samples.
+    def delay(self, hz):
+        if self.from_rate > self.to_rate:
+            # convert hz to radians per sample,
+            # at input sample rate.
+            rps = (1.0 / hz) * (2 * math.pi) / self.from_rate
+            gd = scipy.signal.group_delay(self.filter, w=[rps])
+            n = (gd[1][0] / self.from_rate) * self.to_rate
+            return n
+        else:
+            return 0
+
     def resample(self, buf):
         # if resample() uses FFT, then handing it huge chunks is
         # slow. so cut big buffers into one-second chunks.
@@ -407,6 +551,62 @@ class Resampler:
         self.nout += len(buf)
 
         return buf
+
+def one_test_resampler(from_rate, to_rate):
+    hz = 511
+    t1 = costone(from_rate, hz, from_rate*10)
+
+    r = Resampler(from_rate, to_rate)
+
+    i = 0
+    bufbuf = [ ]
+    while i < len(t1):
+        n = random.randint(1, from_rate)
+        buf = r.resample(t1[i:i+n])
+        bufbuf.append(buf)
+        i += n
+    t2 = numpy.concatenate(bufbuf)
+
+    expecting = costone(to_rate, hz, to_rate*10)
+    delay = r.delay(hz)
+    delay = int(round(delay))
+    expecting = numpy.append(numpy.zeros(delay), expecting)
+    expecting = expecting[0:to_rate*10]
+
+    diff = t2 - expecting
+    x = math.sqrt(numpy.mean(diff * diff))
+
+    if True:
+        import matplotlib.pyplot as plt
+        i0 = len(diff) - 200
+        i1 = i0 + 200
+        plt.plot(expecting[i0:i1])
+        plt.plot(t2[i0:i1])
+        plt.plot(diff[i0:i1])
+        plt.show()
+
+    return x
+
+# measure Resampler distortion.
+# not very revealing since the filter delay
+# prevents easy comparison.
+def test_resampler():
+    global resample_interp
+    ori = resample_interp
+
+    for [ r1, r2 ] in [
+            [ 32000, 12000 ],
+            ]:
+
+        resample_interp = False
+        x = one_test_resampler(r1, r2)
+        print "%d %d False: %.3f" % (r1, r2, x)
+
+        #resample_interp = True
+        #x = one_test_resampler(r1, r2)
+        #print "%d %d True: %.3f" % (r1, r2, x)
+
+    resample_interp = ori
 
 use_numpy_arfft = False
 
@@ -630,3 +830,34 @@ def fsk(symbols, hza, spacing, rate, symsamples, phase0=0.0):
     a = numpy.sin(angles)
 
     return a
+
+# weighted choice (to pick bands).
+# a[i] = [ value, weight ]
+def wchoice(a, n):
+    total = 0.0
+    for e in a:
+        total += e[1]
+
+    ret = [ ]
+    while len(ret) < n:
+        x = random.random() * total
+        for ai in range(0, len(a)):
+            e = a[ai]
+            if x <= e[1]:
+                ret.append(e[0])
+                total -= e[1]
+                a = a[0:ai] + a[ai+1:]
+                break
+            x -= e[1]
+
+    return ret
+
+def wchoice_test():
+    a = [ [ "a", .1 ], [ "b", .1 ], [ "c", .4 ], [ "d", .3 ], [ "e", .1 ] ]
+    counts = { }
+    for iter in range(0, 500):
+        x = wchoice(a, 2)
+        assert len(x) == 2
+        for e in x:
+            counts[e] = counts.get(e, 0) + 1
+    print(counts)
