@@ -144,6 +144,7 @@ class SDRIP:
     else:
         self.pipe = r
         os.close(w)
+        self.ds.close()
 
     # commands over TCP to port 50000
     self.cs = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -164,11 +165,39 @@ class SDRIP:
     th.daemon = True
     th.start()
 
+    # "SDR-IP"
     #print "name: %s" % (self.getitem(0x0001))
+
+    # option 0x02 means reflock board is installed
     #oo = self.getitem(0x000A) # Options
     #oo0 = ord(oo[0])
-    #print "%02x" % (oo0)
+    #print "options: %02x" % (oo0)
 
+    if False:
+        # set calibration.
+        # 192.168.3.130 wants + 506
+        # 192.168.3.131 wants + 525
+        # (these are with the 10 mhz reflock ocxo, but not locked)
+        data = ""
+        data += x8(0) # ignored
+        if self.ipaddr == "192.168.3.130":
+            data += x32(80000000 + 506)
+        elif self.ipaddr == "192.168.3.131":
+            data += x32(80000000 + 525)
+        else:
+            print "sdrip.py: unknown IP address %s for calibration" % (self.ipaddr)
+            # data += x32(80000000 + 0)
+            data = None
+        if data != None:
+            self.setitem(0x00B0, data)
+
+    # A/D Input Sample Rate Calibration
+    # factory set to 80000000
+    x = self.getitem(0x00B0)
+    cal = y32(x[1:5])
+    print "sdrip %s cal: %s" % (self.ipaddr, cal)
+
+  # read the UDP socket from the SDR-IP.
   def reader1(self):
     while True:
         buf = self.ds.recv(4096)
@@ -212,7 +241,7 @@ class SDRIP:
                   ww.write(pkt)
                   ww.flush()
               except:
-                  sys.stderr.write("sdrip: pipe write failed\n")
+                  #sys.stderr.write("sdrip: pipe write failed\n")
                   os._exit(1)
 
   # consume unsolicited messages from the NetSDR,
@@ -568,10 +597,10 @@ class SDRIP:
       #samples = s32.astype(numpy.int16)
       samples = numpy.fromstring(zz, dtype=numpy.int32)
 
-    samples = samples.astype(numpy.float32)
+    samples = samples.astype(numpy.float64)
 
     if gap > 0:
-      pad = numpy.zeros(len(samples)*gap, dtype=numpy.float32),
+      pad = numpy.zeros(len(samples)*gap, dtype=numpy.float64),
       samples = numpy.append(pad, samples)
 
     ii1 = samples[0::2]
