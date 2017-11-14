@@ -2,29 +2,48 @@
 // LDPC decoder for FT8.
 //
 // given a 174-bit codeword as an array of log-likelihood of zero,
-// return a 87-bit plain text, or zero-length array.
+// return a 174-bit corrected codeword, or zero-length array.
+// last 87 bits are the (systematic) plain-text.
 // this is an implementation of the sum-product algorithm
 // from Sarah Johnson's Iterative Error Correction book.
 // codeword[i] = log ( P(x=0) / P(x=1) )
 //
-// cc -O2 libldpc.c -shared -fPIC -o libldpc.so
+// cc -O3 libldpc.c -shared -fPIC -o libldpc.so
 //
 
 #include <stdio.h>
 #include <math.h>
+#include <stdlib.h>
 #include "arrays.h"
 
 int ldpc_check(int codeword[]);
 
+// thank you Douglas Bagnall
+// https://math.stackexchange.com/a/446411
+float fast_tanh(float x){
+  if(x < -4.97){
+    return -1.0;
+  }
+  if(x > 4.97){
+    return 1.0;
+  }
+  float x2 = x * x;
+  float a = x * (135135.0f + x2 * (17325.0f + x2 * (378.0f + x2)));
+  float b = 135135.0f + x2 * (62370.0f + x2 * (3150.0f + x2 * 28.0f));
+  return a / b;
+}
+
 // codeword is 174 log-likelihoods.
-// plain is a return value, 87 ints, to be 0 or 1.
+// plain is a return value, 174 ints, to be 0 or 1.
 // iters is how hard to try.
-// ok == 1 means success.
+// ok == 87 means success.
 void
 ldpc_decode(double codeword[], int iters, int plain[], int *ok)
 {
   double m[87][174];
   double e[87][174];
+  int best_score = -1;
+  int best_cw[174];
   
   for(int i = 0; i < 174; i++)
     for(int j = 0; j < 87; j++)
@@ -44,7 +63,7 @@ ldpc_decode(double codeword[], int iters, int plain[], int *ok)
         for(int ii2 = 0; ii2 < 7; ii2++){
           int i2 = Nm[j][ii2] - 1;
           if(i2 >= 0 && i2 != i1){
-            a *= tanh(m[j][i2] / 2.0);
+            a *= fast_tanh(m[j][i2] / 2.0);
           }
         }
         e[j][i1] = log((1 + a) / (1 - a));
@@ -58,14 +77,26 @@ ldpc_decode(double codeword[], int iters, int plain[], int *ok)
         l += e[Mn[i][j]-1][i];
       cw[i] = (l <= 0.0);
     }
-    if(ldpc_check(cw)){
+    int score = ldpc_check(cw);
+    if(score == 87){
+#if 0
       int cw1[174];
       for(int i = 0; i < 174; i++)
         cw1[i] = cw[colorder[i]];
       for(int i = 0; i < 87; i++)
         plain[i] = cw1[174-87+i];
-      *ok = 1;
+#else
+      for(int i = 0; i < 174; i++)
+        plain[i] = cw[colorder[i]];
+#endif
+      *ok = 87;
       return;
+    }
+
+    if(score > best_score){
+      for(int i = 0; i < 174; i++)
+        best_cw[i] = cw[i];
+      best_score = score;
     }
 
     for(int i = 0; i < 174; i++){
@@ -83,15 +114,31 @@ ldpc_decode(double codeword[], int iters, int plain[], int *ok)
     }
   }
 
-  *ok = 0;
+  // decode didn't work, return something anyway.
+#if 0
+  int cw1[174];
+  for(int i = 0; i < 174; i++)
+    cw1[i] = best_cw[colorder[i]];
+  for(int i = 0; i < 87; i++)
+    plain[i] = cw1[174-87+i];
+#else
+  for(int i = 0; i < 174; i++)
+    plain[i] = best_cw[colorder[i]];
+#endif
+
+  *ok = best_score;
 }
 
 //
 // does a 174-bit codeword pass the FT8's LDPC parity checks?
+// returns the number of parity checks that passed.
+// 87 means total success.
 //
 int
 ldpc_check(int codeword[])
 {
+  int score = 0;
+  
   // Nm[87][7]
   for(int j = 0; j < 87; j++){
     int x = 0;
@@ -101,10 +148,41 @@ ldpc_check(int codeword[])
         x ^= codeword[i1];
       }
     }
-    if(x != 0)
-      return 0;
+    if(x == 0)
+      score++;
   }
-  return 1;
+  return score;
+}
+
+void
+ft8_crc(int msg1[], int msglen, int out[12])
+{
+  // the FT8 polynomial for 12-bit CRC.
+  int div[] = { 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0 };
+
+  // append 12 zeros.
+  int *msg = (int *)malloc(sizeof(int) * (msglen + 12));
+  for(int i = 0; i < msglen + 12; i++){
+    if(i < msglen){
+      msg[i] = msg1[i];
+    } else {
+      msg[i] = 0;
+    }
+  }
+
+  for(int i = 0; i < msglen; i++){
+    if(msg[i]){
+      for(int j = 0; j < 13; j++){
+        msg[i+j] = (msg[i+j] + div[j]) % 2;
+      }
+    }
+  }
+
+  for(int i = 0; i < 12; i++){
+    out[i] = msg[msglen+i];
+  }
+
+  free(msg);
 }
 
 //  # given a 174-bit codeword as an array of log-likelihood of zero,
