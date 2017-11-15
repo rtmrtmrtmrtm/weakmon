@@ -1,0 +1,95 @@
+Here are a few lessons I've learned while writing an FT8 modem. None
+of this is new; it's all enabled by the impressive designs from the
+WSJT authors.
+
+I'm assuming a demodulator that does lots of FFTs, each FFT bin
+corresponding to one FSK tone; e.g. 960-point FFTs at 6000
+samples/second for FT8's 6.25-Hz tone separation and 0.16-second
+symbol length. Demodulation involves hundreds of FFTs: a signal
+consists of 79 8-FSK symbols, and because one doesn't know exactly
+where the signal starts in time or frequency, one must do a few sets
+of FFTs for each symbol time at different sub-symbol and sub-tone
+offsets. Luckily each FFT takes only about half a millisecond.
+
+FT8 uses a regular message structure protected by strong
+error-correcting codes (LDPC and CRC). These properties allow a
+demodulator to try lots of theories for the contents of a received
+signal, or for which parts of the received spectrum contain a signal
+at all. FT8 demodulation is a search problem, looking for multiple
+signals over the allowed range of frequencies and start times.
+
+The gap of about two seconds between the end of each signal cycle and
+when one would have to transmit a response is a harsh constraint. Many
+ideas that would yield more decodes aren't useful because they require
+too much CPU time, or because the limited CPU time is better used for
+some other search idea. My demodulator's biggest consumers of CPU time
+are the LDPC decoder (which grinds away as long as you allow it,
+hoping to find sets of bits to flip which yield a valid decode), the
+FFTs, and correlations to find Costas sync arrays.
+
+Half the battle is deciding where the real signals lie. When a
+demodulator fails to decode a weak signal, often it's because it
+wasn't even trying: it never got around to looking at the relevant
+frequency and start time. Multiple passes can help concentrate limited
+CPU time on the most promising candidate signals. A first pass can
+quickly look for Costas sync arrays over the whole spectrum, and sort
+the candidates by S/N. A second pass can consider the candidates
+strongest first, stopping when FT8's two-second limit expires. For
+each candidate, the second pass can fine-tune alignment in frequency
+and time, demodulate FSK, and run the LDPC decoder until it finds a
+valid decode or gives up.
+
+Some signals drift in frequency by one or more FSK bins (6.25 Hz for
+FT8), so that they don't directly decode. For JT65 it is worth trying
+to decode at a few different drifts. For FT8 I have not found a way to
+do this that's cheap enough in CPU to be worthwhile.
+
+It pays to subtract signals from the samples as they are decoded,
+revealing overlapping weaker signals. That is, after decoding a
+signal, re-encode and re-modulate it to yield the signal as sent (as
+opposed to the received signal, which usually has noise and thus
+errors), and subtract from the sound-card samples. The subtraction has
+to be adjusted to match the amplitude and phase of the received
+signal. I find that adjusting each symbol separately works better than
+trying to subtract the whole signal at once. My demodulator subtracts
+in the time domain; because using the post-subtraction samples
+requires a new set of FFTs, it switches to them just once midway
+through the overall computation.
+
+The LDPC decoder can correct some errored bits, but only if you give
+it good estimates of each bit's likelihood of being correct. Thus the
+demodulator needs use the strengths of each symbol's 8 FSK tone bins
+to guess the quality of the three derived bits. One needs to look at
+not just which of the 8 tones is strongest, but also how strong it is
+relative to the other 7 weaker tones. The demodulator needs to build a
+model of the probabilities of various signal and noise levels, and use
+that to estimate how likely a tone is to be correct. The quality of
+each of the three bits derived from a symbol depends on both the
+strongest and less-strong tones: if the strongest and second-strongest
+tone imply the same value for a bit, then that value is more likely
+than if the strongest and second-strongest imply different bit values.
+I use Bayes' rule to combine the information from a symbol's tones to
+produce a probability for each bit. The a-priori probabilities for the
+various bits in a 174-bit coded message are not all 0.5, and it's
+worth incorporating that into the Bayes computation.
+
+Using multiple receivers in parallel on different bands increases the
+chances of seeing a CQ to which you'd like to respond. A bit of
+integration is required to display all the CQs together to the user,
+and to switch the transmitter to the band of the CQ that the user
+elects to reply to.
+
+For replies, the software can pick a random-ish reply frequency that
+has recently had a low signal+noise level, to minimize interference.
+
+Since FT8 demodulation is CPU-limited, and most computers have
+multiple cores, it's well worth parallelizing the work. If you listen
+to multiple receivers in parallel, it's straightforward to run the
+receivers' decoders in parallel. If you have cores left over, or only
+one receiver, you can split the frequency range in half and search for
+signals in the two halves in parallel (e.g. 200..1250 Hz on one core,
+and 1250..2500 Hz on a another core). A little overlap is required to
+allow subtraction of signals at the boundary.
+
+Robert, AB1HL
+
