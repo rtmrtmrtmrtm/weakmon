@@ -166,12 +166,12 @@ class SDRIP:
     th.start()
 
     # "SDR-IP"
-    #print "name: %s" % (self.getitem(0x0001))
+    #print("name: %s" % (self.getitem(0x0001)))
 
     # option 0x02 means reflock board is installed
     #oo = self.getitem(0x000A) # Options
     #oo0 = ord(oo[0])
-    #print "options: %02x" % (oo0)
+    #print("options: %02x" % (oo0))
 
     if False:
         # set calibration.
@@ -185,7 +185,7 @@ class SDRIP:
         elif self.ipaddr == "192.168.3.131":
             data += x32(80000000 + 525)
         else:
-            print "sdrip.py: unknown IP address %s for calibration" % (self.ipaddr)
+            print("sdrip.py: unknown IP address %s for calibration" % (self.ipaddr))
             # data += x32(80000000 + 0)
             data = None
         if data != None:
@@ -195,7 +195,7 @@ class SDRIP:
     # factory set to 80000000
     x = self.getitem(0x00B0)
     cal = y32(x[1:5])
-    print "sdrip %s cal: %s" % (self.ipaddr, cal)
+    print("sdrip %s cal: %s" % (self.ipaddr, cal))
 
   # read the UDP socket from the SDR-IP.
   def reader1(self):
@@ -301,7 +301,7 @@ class SDRIP:
       if reply[1] != item:
         sys.stderr.write("sdrip: readreply oops2 wanted=%04x got=%04x\n" % (item,
                                                                    reply[1]))
-      # print "reply: %04x %s" % (reply[1], hx(reply[2]))
+      # print("reply: %04x %s" % (reply[1], hx(reply[2])))
     sys.exit(1)
 
   # send a Request Control Item, wait for and return the result
@@ -338,10 +338,10 @@ class SDRIP:
       print(("name: %s" % (self.getname())))
       print(("serial: %s" % (self.getserial())))
       print(("interface: %d" % (self.getinterface())))
-      # print "boot version: %s" % (self.getversion(0))
-      # print "application firmware version: %s" % (self.getversion(1))
-      # print "hardware version: %s" % (self.getversion(2))
-      # print "FPGA config: %s" % (self.getversion(3))
+      # print("boot version: %s" % (self.getversion(0)))
+      # print("application firmware version: %s" % (self.getversion(1))0
+      # print("hardware version: %s" % (self.getversion(2)))
+      # print("FPGA config: %s" % (self.getversion(3)))
       print(("rate: %d" % (self.getrate())))
       print(("freq 0: %d" % (self.getfreq(0)))) # 32770 if down-converting
       print(("A/D mode: %s" % (self.getad(0))))
@@ -349,7 +349,7 @@ class SDRIP:
       print(("gain: %d" % (self.getgain(0))))
       print(("fpga: %s" % (self.getfpga())))
       print(("scale: %s" % (self.getscale(0))))
-      # print "downgain: %s" % (self.getdowngain())
+      # print("downgain: %s" % (self.getdowngain()))
 
   # set Frequency
   def setfreq1(self, chan, hz):
@@ -561,7 +561,7 @@ class SDRIP:
     lx |= (ord(buf[1]) << 8)
     mtype = (lx >> 13) & 0x7 # 0x4 is data
     lx &= 0x1fff # should == len(buf)
-    # print "%d %d %x" % (len(buf), lx, mtype)
+    # print("%d %d %x" % (len(buf), lx, mtype))
 
     # packet sequence number (wraps to 1, not 0)
     seq = ord(buf[2]) | (ord(buf[3]) << 8)
