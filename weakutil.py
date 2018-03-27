@@ -19,8 +19,16 @@ import scipy.fftpack
 import wave
 import time
 import sys
+import os
 import math
 import random
+
+have_fftw = False
+try:
+  import pyfftw.interfaces.numpy_fft
+  have_fftw = True
+except:
+  pass
 
 def cfg(program, key):
     cfg = configparser.SafeConfigParser()
@@ -40,11 +48,51 @@ def butter_bandpass(lowcut, highcut, samplerate, order=5):
   b, a = scipy.signal.butter(order, [low, high], btype='bandpass')
   return b, a
 
+def butter_highpass(cut, samplerate, order=5):
+  nyq = 0.5 * samplerate
+  cut = cut / nyq
+  b, a = scipy.signal.butter(order, cut, btype='highpass')
+  return b, a
+
 def butter_lowpass(cut, samplerate, order=5):
   nyq = 0.5 * samplerate
   cut = cut / nyq
   b, a = scipy.signal.butter(order, cut, btype='lowpass')
   return b, a
+
+def cheby_lowpass(cut, rate):
+    passhz = cut - 0.0
+    stophz = cut + 50.0
+    b, a = scipy.signal.iirdesign(2.0*passhz/rate,
+                                  2.0*stophz/rate,
+                                  0.5, # ripple_pass
+                                  60.0, # atten_stop
+                                  ftype = "cheby2",
+                                  output="ba")
+    return b, a
+
+def old_cheby_highpass(cut, rate):
+    passhz = cut + 0.0
+    stophz = cut - 75.0
+    b, a = scipy.signal.iirdesign(2.0*passhz/rate,
+                                  2.0*stophz/rate,
+                                  0.5, # ripple_pass
+                                  60.0, # atten_stop
+                                  ftype = "cheby1",
+                                  output="ba")
+    return b, a
+
+def cheby_highpass(cut, rate):
+    cut += 25
+    passhz = cut + 25.0
+    stophz = cut - 75.0
+    b, a = scipy.signal.iirdesign(2.0*passhz/rate,
+                                  2.0*stophz/rate,
+                                  0.05, # ripple_pass
+                                  50.0, # atten_stop
+                                  ftype = "cheby2",
+                                  output="ba")
+    return b, a
 
 # FIR bandpass filter
 # http://stackoverflow.com/questions/16301569/bandpass-filter-in-python
@@ -172,8 +220,8 @@ def sintone(rate, hz, n):
     return tone
 
 # pure cos tone, n samples long.
-def costone(rate, hz, n):
-    x = numpy.linspace(0, 2 * hz * (n / float(rate)) * numpy.pi, n,
+def costone(rate, hz, n, phase0=0.0):
+    x = numpy.linspace(phase0, phase0 + 2 * hz * (n / float(rate)) * numpy.pi, n,
                        endpoint=False, dtype=numpy.float32)
     tone = numpy.cos(x)
     return tone
@@ -261,21 +309,23 @@ def parabolic(f, x):
     yv = f[x] - 1/4. * (f[x-1] - f[x+1]) * (xv - x)
     return (xv, yv)
 
-fff_cached_window_set = False
-fff_cached_window = None
+# indexed by window length
+fff_cached_windows = { }
+
+def init_freq_from_fft(n):
+    fff_cached_windows[n] = scipy.signal.blackmanharris(n)
 
 # https://gist.github.com/endolith/255291
 def freq_from_fft(sig, rate, minf, maxf):
-    global fff_cached_window, fff_cached_window_set
-    if fff_cached_window_set == False or len(sig) != len(fff_cached_window):
-      # this uses a bunch of CPU time.
-      fff_cached_window = scipy.signal.blackmanharris(len(sig))
-      fff_cached_window = fff_cached_window.astype(numpy.float32)
-      fff_cached_window_set = True
+    global fff_cached_windows
 
     n = len(sig)
+    
+    assert n in fff_cached_windows
 
-    fa = sig * fff_cached_window
+    fa = sig
+    fa = fa * fff_cached_windows[n]
+
     #fa = abs(numpy.fft.rfft(fa))
     fa = arfft(fa)
 
@@ -297,6 +347,21 @@ def freq_from_fft(sig, rate, minf, maxf):
     true_i = xp[0] + i - 1
 
     return rate * true_i / float(n) # convert to frequency
+
+# like freq_from_fft, but in units of FFT bins.
+def bin_from_fft(sig, rate, bin):
+    global fff_cached_windows
+    n = len(sig)
+    assert n in fff_cached_windows
+
+    sig = sig * fff_cached_windows[n]
+    fa = arfft(sig)
+
+    xp = parabolic(numpy.log(fa[bin-1:bin+2]), 1) # interpolate
+    if xp == None:
+        return None
+    true_bin = xp[0] + bin - 1
+    return true_bin
 
 def moving_average(a, n):
     ret = numpy.cumsum(a, dtype=float)
@@ -416,6 +481,10 @@ def resample(buf, from_rate, to_rate):
         buf = buf[0::2]
         return buf
 
+    if from_rate == to_rate * 4:
+        buf = buf[0::4]
+        return buf
+
     # 11025 -> 441, for wwvmon.py.
     if from_rate == to_rate * 25:
         buf = buf[0::25]
@@ -459,7 +528,7 @@ def resample(buf, from_rate, to_rate):
 # boundaries, which would hurt phase-shift demodulators
 # like WWVB.
 class Resampler:
-    def __init__(self, from_rate, to_rate):
+    def __init__(self, from_rate, to_rate, order=7):
         self.from_rate = from_rate
         self.to_rate = to_rate
 
@@ -467,7 +536,7 @@ class Resampler:
             # prepare a filter to precede resampling.
             self.filter = butter_lowpass(0.45 * self.to_rate,
                                          from_rate,
-                                         7)
+                                         order)
             self.zi = scipy.signal.lfiltic(self.filter[0],
                                            self.filter[1],
                                            [0])
@@ -497,7 +566,7 @@ class Resampler:
         a = [ ]
         i = 0
         if self.from_rate > 20000:
-            big = self.from_rate / 2
+            big = self.from_rate // 2
         else:
             big = self.from_rate
         while i < len(buf):
@@ -524,14 +593,12 @@ class Resampler:
             if ns < 1:
                 ns = 1
             assert len(self.last) >= ns
-            #print("add %d" % (ns))
             buf = numpy.append(self.last[-ns:], buf)
         if outsec - insec > 0.5 / self.from_rate:
             ns = (outsec - insec) / (1.0 / self.from_rate)
             ns = int(round(ns))
             if ns < 1:
                 ns = 1
-            #print("del %d" % (ns))
             buf = buf[ns:]
         
         self.last = savelast
@@ -608,18 +675,47 @@ def test_resampler():
 
     resample_interp = ori
 
-use_numpy_arfft = False
+which_fft = "fftw" # numpy, scipy, fftw
+if have_fftw == False:
+    which_fft = "numpy"
+fftw_info = { }
+fftw_n_info = { }
+fft_inited = False
+
+def init_fft(sizes):
+    global fft_inited
+    if fft_inited:
+        return
+    ##if pyfftw.interfaces.cache.is_enabled() == False:
+    ##    pyfftw.interfaces.cache.enable()
+    ##    pyfftw.interfaces.cache.set_keepalive_time(30.0)
+    if have_fftw:
+        for size in sizes:
+            if not (size in fftw_info):
+                a = pyfftw.empty_aligned(size, dtype='float64')
+                fft = pyfftw.builders.rfft(a, planner_effort='FFTW_PATIENT')
+                fftw_info[size] = fft
+                a = pyfftw.empty_aligned((79,size), dtype='float64')
+                fft = pyfftw.builders.rfftn(a, axes=[1],
+                                            planner_effort='FFTW_PATIENT')
+                fftw_n_info[size] = fft
+    for size in sizes:
+        # warm up twiddle cache
+        a = numpy.random.random(size)
+        rfft(a)
+    fft_inited = True
 
 # wrapper for either numpy or scipy rfft(),
 # followed by abs().
 # scipy rfft() is nice b/c it supports float32.
 # but not faster for 2048-point FFTs.
 def arfft(x):
-    if use_numpy_arfft:
-        y = numpy.fft.rfft(x)
+    if which_fft == "numpy" or which_fft == "fftw":
+        y = rfft(x)
         y = abs(y)
         return y
-    else:
+
+    if which_fft == "scipy":
         assert (len(x) % 2) == 0
 
         y = scipy.fftpack.rfft(x)
@@ -640,16 +736,23 @@ def arfft(x):
         y = numpy.concatenate(([y0], y, [yn]))
         return y
 
-use_numpy_rfft = False
+    assert False
 
 # wrapper for either numpy or scipy rfft().
 # scipy rfft() is nice b/c it supports float32.
 # but not faster for 2048-point FFTs.
 def rfft(x):
-    if use_numpy_rfft:
+    global fftw_info
+
+    if which_fft == "numpy":
         y = numpy.fft.rfft(x)
         return y
-    else:
+
+    if which_fft == "fftw":
+        y = fftw_info[len(x)](x)
+        return y
+
+    if which_fft == "scipy":
         assert (len(x) % 2) == 0
 
         y = scipy.fftpack.rfft(x)
@@ -665,6 +768,24 @@ def rfft(x):
         y1 = y[1:-1].view(cty)
         y = numpy.concatenate((y[0:1], y1, y[-1:]))
         return y
+
+    assert False
+
+# you may need to numpy.copy() the input array.
+def rfftn(x, axes=None):
+    global fftw_n_info
+
+    if which_fft == "numpy" or which_fft == "scipy":
+        y = numpy.fft.rfftn(x, axes=axes)
+        return y
+
+    if which_fft == "fftw":
+        assert axes == [ 1 ]
+        assert x.shape[0] == 79
+        y = fftw_n_info[x.shape[1]](x)
+        return y
+
+    assert False
 
 # apply automatic gain control.
 # causes each winlen window of samples
@@ -682,13 +803,13 @@ def agc(samples, winlen):
 
 # write a mono file
 def writewav1(left, filename, rate):
-  ww = wave.open(filename, 'w')
+  ww = wave.open(filename, 'wb')
   ww.setnchannels(1)
   ww.setsampwidth(2)
   ww.setframerate(rate)
 
   # ensure signal levels are OK.
-  mx = numpy.max(left)
+  mx = numpy.max(abs(left))
   left = (10000.0 * left) / mx
 
   # convert to 16-bit ints
@@ -703,7 +824,7 @@ def writewav1(left, filename, rate):
 
 # write a stereo file
 def writewav2(left, right, filename, rate):
-  ww = wave.open(filename, 'w')
+  ww = wave.open(filename, 'wb')
   ww.setnchannels(2)
   ww.setsampwidth(2)
   ww.setframerate(rate)
@@ -821,8 +942,17 @@ def fsk(symbols, hza, spacing, rate, symsamples, phase0=0.0):
     # frequency for each sample.
     hzv = numpy.repeat(symhz, symsamples)
 
+    # advance angle for each sample
+    dtheta = (hzv * 2.0 * numpy.pi) / float(rate)
+
+    # start at pi/2 (so it's a cosine wave),
+    # and so that (for FT8 &c) FFT phases are zero for
+    # all symbols when hz is centered on a bin and
+    # the FFTs start exactly at the start of the signal.
+    dtheta = numpy.append([math.pi/2], dtheta[0:-1])
+
     # cumulative angle.
-    angles = numpy.cumsum(2.0 * numpy.pi / (float(rate) / hzv))
+    angles = numpy.cumsum(dtheta)
 
     # start at indicated phase.
     angles = angles + phase0
@@ -861,3 +991,66 @@ def wchoice_test():
         for e in x:
             counts[e] = counts.get(e, 0) + 1
     print(counts)
+
+# how long does freq_shift take?
+# 0.03 seconds
+def shift_bench():
+    rate = 12000
+    seconds = 13
+    samples = numpy.random.random(seconds * rate)
+
+    t0 = time.time()
+    iters = 100
+    for iter in range(0, iters):
+        junk = freq_shift(samples, -1190, 1.0 / rate)
+    t1 = time.time()
+    print("%f" % ((t1 - t0) / iters))
+
+# how long do filters take?
+# order 5 :  0.0014 seconds
+# order 17 : 0.003 seconds
+# cheby_lowpass: 0.005
+# cheby_highpass: 0.005
+def filter_bench():
+    rate = 12000
+    seconds = 13
+    samples = numpy.random.random(seconds * rate)
+
+    for order in [ 5, 7, 9, 13, 17]:
+        t0 = time.time()
+        iters = 100
+        for iter in range(0, iters):
+            #f = butter_lowpass(1300, rate, order=order)
+            f = cheby_highpass(1300, rate)
+            junk = scipy.signal.lfilter(f[0], f[1], samples)
+        t1 = time.time()
+        print("order %d : %f" % (order, (t1 - t0) / iters))
+
+# for testing, plot filter response.
+def plot_filter():
+    rate = 12000
+    cut = 0.45 * 3000
+
+    import matplotlib.pyplot as plt
+    plt.figure(1)
+    plt.clf()
+
+    for order in [9]:
+        f = butter_lowpass(0.45 * 3000, rate, order=order)
+        w, h = scipy.signal.freqz(f[0], f[1], worN=2000)
+        plt.plot((rate * 0.5 / numpy.pi) * w, abs(h), label="order=%d"%(order))
+
+    f = cheby_lowpass(0.45 * 3000, rate)
+    w, h = scipy.signal.freqz(f[0], f[1], worN=2000)
+    plt.plot((rate * 0.5 / numpy.pi) * w, abs(h), label="cheby-low")
+
+    f = cheby_highpass(0.45 * 3000, rate)
+    w, h = scipy.signal.freqz(f[0], f[1], worN=2000)
+    plt.plot((rate * 0.5 / numpy.pi) * w, abs(h), label="cheby-high")
+
+    plt.xlim([0,3000])
+    plt.xlabel("Hz (cutoff=%d)" % (int(cut)))
+    plt.ylabel("Gain")
+    plt.grid(True)
+    plt.legend(loc='best')
+    plt.show()
