@@ -185,6 +185,54 @@ ft8_crc(int msg1[], int msglen, int out[12])
   free(msg);
 }
 
+// rows is 87.
+// m[174][174]. 
+// m's right half should start out as zeros.
+// m's upper-right quarter will be the desired inverse.
+void
+gauss_jordan(int rows, int m[2*rows][2*rows], int which[rows], int *ok)
+{
+  *ok = 0;
+
+  for(int row = 0; row < rows; row++){
+    if(m[row][row] != 1){
+      for(int row1 = row+1; row1 < 2*rows; row1++){
+        if(m[row1][row] == 1){
+          // swap m[row] and m[row1]
+          for(int col = 0; col < 2*rows; col++){
+            int tmp = m[row][col];
+            m[row][col] = m[row1][col];
+            m[row1][col] = tmp;
+          }
+          int tmp = which[row];
+          which[row] = which[row1];
+          which[row1] = tmp;
+          break;
+        }
+      }
+    }
+    if(m[row][row] != 1){
+      // could not invert
+      *ok = 0;
+      return;
+    }
+    // lazy creation of identity matrix in the upper-right quarter
+    m[row][rows+row] = (m[row][rows+row] + 1) % 2;
+    // now eliminate
+    for(int row1 = 0; row1 < 2*rows; row1++){
+      if(row1 == row)
+        continue;
+      if(m[row1][row] != 0){
+        for(int col = 0; col < 2*rows; col++){
+          m[row1][col] = (m[row1][col] + m[row][col]) % 2;
+        }
+      }
+    }
+  }
+
+  *ok = 1;
+}
+
 //  # given a 174-bit codeword as an array of log-likelihood of zero,
 //  # return a 87-bit plain text, or zero-length array.
 //  # this is an implementation of the sum-product algorithm
