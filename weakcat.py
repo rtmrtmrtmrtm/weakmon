@@ -36,6 +36,8 @@ def open(desc):
         ret = R75(dev, 0x5A)
     if type == "r8500":
         ret = R75(dev, 0x4A)
+    if type == "r8600":
+        ret = R75(dev, 0x96)
     if type == "ar5000":
         ret = AR5000(dev)
     if type == "sdrip":
@@ -80,7 +82,7 @@ def usage():
     for com in coms:
         sys.stderr.write("  %s\n" % (com))
     sys.stderr.write("radio types for -cat: ")
-    for ty in [ "k3", "rx340", "8711", "sdrip", "sdriq", "r75", "r8500", "ar5000", "eb200", "sdrplay", "prc138" ]:
+    for ty in [ "k3", "rx340", "8711", "sdrip", "sdriq", "r75", "r8500", "r8600", "ar5000", "eb200", "sdrplay", "prc138" ]:
         sys.stderr.write("%s " % (ty))
     sys.stderr.write("\n")
 
@@ -124,10 +126,9 @@ class K3(object):
   
     # send a no-op command and wait for the response.
     def sync(self):
-        self.cmd("K22")
-        self.cmd("K2")
-        r = self.readrsp("K2")
-        if r != "K22":
+        self.cmd("AN")
+        r = self.readrsp("AN")
+        if r[0:2] != "AN":
             sys.stderr.write("k3.sync: got weird %s\n" % (r))
 
     # get the frequeny in Hz from vfo=0 (A) or vfo=1 (B / sub-receiver).
@@ -232,6 +233,10 @@ class SDRIP(object):
     # does not wait.
     def setf(self, vfo, fr):
         self.sdr.setfreq(fr)
+        if fr < 8000000:
+            self.sdr.setgain(-10)
+        else:
+            self.sdr.setgain(0)
 
     def set_usb_data(self):
         self.sdr.set_mode("usb")
@@ -257,10 +262,12 @@ class SDRIQ(object):
 
 # Icom IC-R75
 # Icom IC-R8500
+# Icom IC-R8600
 class R75(object):
     def __init__(self, devname, civ):
         # ic-r75 CI-V address defaults to 0x5A
         # ic-r8500 CI-V address defaults to 0x4A
+        # ic-r8600 CI-V address defaults to 0x96
 
         self.civ = civ
 
@@ -271,12 +278,15 @@ class R75(object):
                                   bytesize=serial.EIGHTBITS)
         
     def cmd(self, cmd, subcmd, data):
-        self.port.write("\xfe\xfe%c\xe0" % (self.civ))
-        self.port.write(chr(cmd))
+        # python3's serial module wants bytes, not str.
+        s = b""
+        s += b"\xfe\xfe%c\xe0" % (self.civ)
+        s += bytearray([cmd]) # chr(cmd)
         if subcmd != None:
-            self.port.write(chr(subcmd))
-        self.port.write(data)
-        self.port.write("\xfd")
+            s += bytearray([subcmd]) # chr(subcmd)
+        s += data
+        s += b"\xfd"
+        self.port.write(s)
         time.sleep(0.01)
   
     # send a no-op command and wait for the response.
@@ -287,13 +297,13 @@ class R75(object):
     def bcd(self, hz):
         # 10 hz first -- no single hz.
         hz = int(hz)
-        s = ""
+        s = b""
         for i in range(0, 5):
             d0 = hz % 10
-            hz /= 10
+            hz //= 10
             d1 = hz % 10
-            hz /= 10
-            s += chr(d1*16 + d0)
+            hz //= 10
+            s += bytearray([d1*16+d0]) # chr(d1*16 + d0)
         return s
 
     # set the frequeny in Hz for vfo=0 (A) or vfo=1 (B / sub-receiver).
@@ -303,6 +313,9 @@ class R75(object):
 
     def set_usb_data(self):
         self.cmd(0x06, 0x01, "") # USB
+
+    def set_fm_data(self):
+        self.cmd(0x06, 0x05, "") # FM
 
 # AOR AR-5000
 class AR5000(object):
@@ -464,7 +477,7 @@ class PRC138(object):
     def set_usb_data(self):
         self.set_mode("USB")
         self.set_agc("DATA")
-        self.set_pow("HIGH")
+        # self.set_pow("HIGH")
         self.set_bw(2.7)
 
 class EB200(object):
