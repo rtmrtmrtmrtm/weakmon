@@ -25,59 +25,71 @@ import struct
 import weakutil
 
 def x8(x):
-  s = chr(x & 0xff)
-  return s
+    s = bytearray([x & 0xff])
+    return s
 
 def x16(x):
-  s = ""
-  s += chr(x & 0xff) # least-significant first
-  s += chr((x >> 8) & 0xff)
-  return s
+    # least-significant first
+    s = bytearray([
+        x & 0xff,
+        (x >> 8) & 0xff ])
+    return s
 
 def x32(x):
-  s = ""
-  s += chr(x & 0xff) # least-significant first
-  s += chr((x >> 8) & 0xff)
-  s += chr((x >> 16) & 0xff)
-  s += chr((x >> 24) & 0xff)
-  return s
+    # least-significant first
+    s = bytearray([
+        x & 0xff,
+        (x >> 8) & 0xff,
+        (x >> 16) & 0xff,
+        (x >> 24) & 0xff ])
+    return s
 
 # 40-bit frequency in Hz, lsb first
 # but argument must be an int
 def x40(hz):
-  s = ""
+  s = b""
   for i in range(0, 5):
-    s = s + chr(hz & 0xff)
+    s = s + bytearray([ hz & 0xff ])
     hz >>= 8
   return s
 
+# turn a char into an int.
+# yord[s[i]]
+# in python27, s is str, s[i] is str, so call ord().
+# in python3, s is bytes, s[i] is int, so no ord().
+def yord(x):
+    if type(x) == int:
+        return x
+    else:
+        return ord(x)
+
 def y16(s):
-    x = (ord(s[0]) + 
-         (ord(s[1]) << 8))
+    x = (yord(s[0]) + 
+         (yord(s[1]) << 8))
     return x
 
 def y32(s):
-    x = (ord(s[0]) + 
-         (ord(s[1]) << 8) +
-         (ord(s[2]) << 16) +
-         (ord(s[3]) << 24))
+    x = (yord(s[0]) + 
+         (yord(s[1]) << 8) +
+         (yord(s[2]) << 16) +
+         (yord(s[3]) << 24))
     return x
 
 # turn 5 bytes from NetSDR into a 40-bit number.
 # LSB first.
 def y40(s):
-    hz = (ord(s[0]) + 
-          (ord(s[1]) << 8) +
-          (ord(s[2]) << 16) +
-          (ord(s[3]) << 24) +
-          (ord(s[4]) << 32))
+    hz = (yord(s[0]) + 
+          (yord(s[1]) << 8) +
+          (yord(s[2]) << 16) +
+          (yord(s[3]) << 24) +
+          (yord(s[4]) << 32))
     return hz
 
-# turn a string into hex digits
+# turn a byte array into hex digits
 def hx(s):
   buf = ""
   for i in range(0, len(s)):
-    buf += "%02x " % (ord(s[i]))
+    buf += "%02x " % (yord(s[i]))
   return buf
 
 mu = threading.Lock()
@@ -170,7 +182,7 @@ class SDRIP:
 
     # option 0x02 means reflock board is installed
     #oo = self.getitem(0x000A) # Options
-    #oo0 = ord(oo[0])
+    #oo0 = yord(oo[0])
     #print("options: %02x" % (oo0))
 
     if False:
@@ -178,7 +190,7 @@ class SDRIP:
         # 192.168.3.130 wants + 506
         # 192.168.3.131 wants + 525
         # (these are with the 10 mhz reflock ocxo, but not locked)
-        data = ""
+        data = b""
         data += x8(0) # ignored
         if self.ipaddr == "192.168.3.130":
             data += x32(80000000 + 506)
@@ -253,6 +265,7 @@ class SDRIP:
               time.sleep(1)
       except:
           pass
+
       sys.stderr.write("sdrip: control connection died\n")
       os.kill(self.reader_pid, 9)
 
@@ -260,7 +273,7 @@ class SDRIP:
   def read16(self):
     x0 = self.cs.recv(1) # least-significant byte
     x1 = self.cs.recv(1) # most-significant byte
-    return (ord(x0) & 0xff) | ((ord(x1) << 8) & 0xff00)
+    return (yord(x0) & 0xff) | ((yord(x1) << 8) & 0xff00)
 
   # read a reply from the TCP control socket
   # return [ type, item, data ]
@@ -273,7 +286,7 @@ class SDRIP:
         sys.stderr.write("sdrip: NAK\n")
         return None
     item = self.read16() # control item
-    data = ""
+    data = b""
     xlen = len - 4
     while xlen > 0:
       dd = self.cs.recv(1)
@@ -308,7 +321,7 @@ class SDRIP:
   def getitem(self, item, extra=None):
     self.mu.acquire()
     mtype = 1 # type=request control item
-    buf = ""
+    buf = b""
     buf += x8(4) # overall length, lsb
     buf += x8((mtype << 5) | 0) # 0 is len msb
     buf += x16(item)
@@ -323,7 +336,7 @@ class SDRIP:
     self.mu.acquire()
     mtype = 0 # set item
     lx = 4 + len(data)
-    buf = ""
+    buf = b""
     buf += x8(lx)
     buf += x8((mtype << 5) | 0)
     buf += x16(item)
@@ -339,7 +352,7 @@ class SDRIP:
       print(("serial: %s" % (self.getserial())))
       print(("interface: %d" % (self.getinterface())))
       # print("boot version: %s" % (self.getversion(0)))
-      # print("application firmware version: %s" % (self.getversion(1))0
+      # print("application firmware version: %s" % (self.getversion(1)))
       # print("hardware version: %s" % (self.getversion(2)))
       # print("FPGA config: %s" % (self.getversion(3)))
       print(("rate: %d" % (self.getrate())))
@@ -354,8 +367,8 @@ class SDRIP:
   # set Frequency
   def setfreq1(self, chan, hz):
     hz = int(hz)
-    data = ""
-    data += chr(chan) # 1=display, 0=actual receiver DDC
+    data = b""
+    data += bytearray([chan]) # 1=display, 0=actual receiver DDC
     data += x40(hz)
     self.setitem(0x0020, data)
 
@@ -379,7 +392,7 @@ class SDRIP:
   # only I/Q seems to work, not real.
   def setrun(self):
     self.running = True
-    data = ""
+    data = b""
     if self.iq:
       data += x8(0x80) # 0x80=I/Q, 0x00=real
     else:
@@ -397,7 +410,7 @@ class SDRIP:
   # stop receiver
   def stop(self):
     self.running = False
-    data = ""
+    data = b""
     if self.iq:
       data += x8(0x80) # 0x80=I/Q, 0x00=real
     else:
@@ -416,7 +429,7 @@ class SDRIP:
   # the minimum is 32000.
   def setrate(self, rate):
     self.rate = rate
-    data = ""
+    data = b""
     data += x8(0) # ignored
     data += x32(rate)
     self.setitem(0x00B8, data)
@@ -429,7 +442,7 @@ class SDRIP:
   # A/D Modes
   # set dither and A/D gain
   def setad(self):
-    data = ""
+    data = b""
     data += x8(0) # ignored
     # bit zero is dither, bit 1 is A/D gain 1.5
     #data += x8(0x3)
@@ -439,8 +452,8 @@ class SDRIP:
   # [ dither, A/D gain ]
   def getad(self, chan):
       x = self.getitem(0x008A, x8(0))
-      dither = (ord(x[1]) & 1) != 0
-      gain = (ord(x[1]) & 2) != 0
+      dither = (yord(x[1]) & 1) != 0
+      gain = (yord(x[1]) & 2) != 0
       return [ dither, gain ]
 
   # RF Filter Select
@@ -448,26 +461,26 @@ class SDRIP:
   # 0=automatic
   # 11=bypass
   def setfilter(self):
-    data = ""
+    data = b""
     data += x8(0) # ignored
     data += x8(0) # automatic
     self.setitem(0x0044, data)
 
   def getfilter(self, chan):
       x = self.getitem(0x0044, x8(chan))
-      return ord(x[1])
+      return yord(x[1])
 
   # RF Gain
   # gain is 0, -10, -20 -30 dB
   def setgain(self, gain):
-    data = ""
+    data = b""
     data += x8(0) # channel 1
     data += x8(gain)
     self.setitem(0x0038, data)
 
   def getgain(self, chan):
     x = self.getitem(0x0038, x8(chan))
-    return ord(x[1])
+    return yord(x[1])
 
   # e.g. "NetSDR"
   def getname(self):
@@ -496,7 +509,7 @@ class SDRIP:
           # NAK
           return None
       if id == 3:
-          return [ ord(x[1]), ord(x[2]) ] # ID, version
+          return [ yord(x[1]), yord(x[2]) ] # ID, version
       else:
           return y16(x[1:3]) # version * 100
 
@@ -504,9 +517,9 @@ class SDRIP:
   # e.g. [1, 1, 7, 'Std FPGA Config \x00']
   def getfpga(self):
     x = self.getitem(0x000C)
-    return [ ord(x[0]),
-             ord(x[1]),
-             ord(x[2]),
+    return [ yord(x[0]),
+             yord(x[1]),
+             yord(x[2]),
              x[3:] ]
 
   # Receiver A/D Amplitude Scale
@@ -518,10 +531,10 @@ class SDRIP:
   # XXX seems to yield a NAK
   def getdowngain(self):
     x = self.getitem(0x003A)
-    auto = ord(x[0])
-    lna = ord(x[1])
-    mixer = ord(x[2])
-    ifout = ord(x[3])
+    auto = yord(x[0])
+    lna = yord(x[1])
+    mixer = yord(x[2])
+    ifout = yord(x[3])
     return [ auto, lna, mixer, ifout ]
                                             
   # Data Output UDP IP and Port Address
@@ -531,12 +544,13 @@ class SDRIP:
     hostport = self.cs.getsockname()
     ipaddr = socket.inet_aton(hostport[0]) # yields a four-byte string, wrong order
 
-    data = ""
-    data += ipaddr[3]
-    data += ipaddr[2]
-    data += ipaddr[1]
-    data += ipaddr[0]
-    data += x16(port)
+    data = b""
+    data += bytearray([
+        ipaddr[3],
+        ipaddr[2],
+        ipaddr[1],
+        ipaddr[0], ])
+    data += x16(port) 
 
     self.setitem(0x00C5, data)
 
@@ -551,20 +565,19 @@ class SDRIP:
         os._exit(1)
     [plen] = struct.unpack("I", x4)
     assert plen > 0 and plen < 65536
-    buf = ""
+    buf = b""
     while len(buf) < plen:
         x = os.read(self.pipe, plen - len(buf))
         buf = buf + x
 
     # parse SDR-IP header into length, msg type
-    lx = ord(buf[0])
-    lx |= (ord(buf[1]) << 8)
+    lx = yord(buf[0])
+    lx |= (yord(buf[1]) << 8)
     mtype = (lx >> 13) & 0x7 # 0x4 is data
     lx &= 0x1fff # should == len(buf)
-    # print("%d %d %x" % (len(buf), lx, mtype))
 
     # packet sequence number (wraps to 1, not 0)
-    seq = ord(buf[2]) | (ord(buf[3]) << 8)
+    seq = yord(buf[2]) | (yord(buf[3]) << 8)
     gap = 0
     if seq != self.nextseq and (seq != 1 or self.nextseq != 65536):
       # one or more packets were lost.
