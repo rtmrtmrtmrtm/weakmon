@@ -139,7 +139,7 @@ class Stream:
         self.chan = chan
 
         if rate == None:
-            rate = pya_output_rate(card, 8000)
+            rate = pya_input_rate(card, 8000)
 
         self.rate = rate # the sample rate the app wants.
         self.cardrate = rate # the rate at which the card is running.
