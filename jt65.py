@@ -106,7 +106,8 @@ def broken_msg(msg):
              "RG9CP6Z", "HIKGWR", "U5A9R7", "MF0ZG3", "9OOATN", "SVUW5S",
              "7MD2HY", "D5F2Q4Y", "L9HTT", "51FLJM", "6ZNDRN", "HTTROP",
              "ED0Z9O", "CDP7W2", "Q0TZ20VS", "TYKFVKV", "12VPKMR", "XNC34V",
-             "GO950IZ", "MU6BNL", "302KDY",
+             "GO950IZ", "MU6BNL", "302KDY", " CM5 K ", "892X722B8CSC",
+             "8+YL.D0E-MUR.", "W7LH./", "HHW7LH.",
     ]
     for bad in bads:
         if bad in msg:
@@ -162,6 +163,8 @@ class JT65:
 
       self.jrate = int(11025/2) # sample rate for processing (FFT &c)
       self.jblock = int(4096/2) # samples per symbol
+
+      weakutil.init_freq_from_fft(self.jblock)
 
       # set self.start_time to the UNIX time of the start
       # of a UTC minute.
@@ -485,7 +488,7 @@ class JT65:
     # scores[i] = [ bin, correlation, valid, start ]
 
     bin_hz = self.jrate / float(self.jblock)
-    ssamples = numpy.copy(samples) # subtracted
+    ssamples = numpy.copy(samples) # for subtraction
     already = { } # suppress duplicate msgs
     subalready = { }
     decodes = 0
@@ -1205,6 +1208,9 @@ class JT65:
     c1 = self.unpackcall(nc1)
     if c1 == "CQ9DX ":
         c1 = "CQ DX "
+    m = re.match(r'^ *E9([A-Z][A-Z]) *$', c1)
+    if m != None:
+        c1 = "CQ " + m.group(1)
     c2 = self.unpackcall(nc2)
     grid = self.unpackgrid(ng)
     return "%s %s %s" % (c1, c2, grid)
@@ -1834,6 +1840,9 @@ def main():
         r.gocard()
     else:
         usage()
+
+weakutil.which_fft = "numpy" # XXX mysteriously, fftw doesn't work for jt65
+weakutil.init_fft([2048])
 
 if __name__ == '__main__':
     if False:
