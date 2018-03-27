@@ -956,7 +956,7 @@ class FFTCache:
             ss = weakutil.freq_shift(self.samples, -freq_off, 1.0/self.jrate)
             bi = 0
             while True:
-                off = bi * (self.jblock / self.block_granules)
+                off = bi * (self.jblock // self.block_granules)
                 if off + self.jblock > len(ss):
                     break
                 block = ss[off:off+self.jblock]
@@ -1371,7 +1371,7 @@ class FT8:
 
       if os.path.isfile("./savewave"):
           filename = "save/%s-%s-%d.wav" % (self.hhmmss(samples_time), oband, n)
-          #print "%s saving %s" % (self.carddesc, filename)
+          #print("%s saving %s" % (self.carddesc, filename))
           weakutil.writewav1(samples, filename, self.cardrate)
 
       if self.band != "-" and self.enabled and self.second(time.time()) > 13:
@@ -1516,9 +1516,9 @@ class FT8:
             if False:
                 dt = ((offset - start_pad) / float(self.jrate))
                 if dec != None:
-                    print "%d [%.1f %d %.2f] %.1f %d %.1f %s" % (phase, rr[0], rr[1], rr[2], hz, offset, dt, dec.msg)
+                    print("%d [%.1f %d %.2f] %.1f %d %.1f %s" % (phase, rr[0], rr[1], rr[2], hz, offset, dt, dec.msg))
                 else:
-                    print "%d [%.1f %d %.2f] %.1f %d %.1f" % (phase, rr[0], rr[1], rr[2], hz, offset, dt)
+                    print("%d [%.1f %d %.2f] %.1f %d %.1f" % (phase, rr[0], rr[1], rr[2], hz, offset, dt))
                 sys.stdout.flush()
 
             if dec != None:
@@ -2132,7 +2132,7 @@ class FT8:
             ll174[xi::3] = x
             xi += 1
 
-        print ll174[0:18]
+        print(ll174[0:18])
 
     if False:
         # soft: estimate probability of 0 for each bit.
@@ -2397,7 +2397,7 @@ class FT8:
         sig = int(g[2:4]) - 50
         return "R+%02d" % (sig)
 
-    #print "lat %d, long %d, %s" % (lat, lng, g)
+    #print("lat %d, long %d, %s" % (lat, lng, g))
     return g
 
   def unpack(self, a):
@@ -2758,7 +2758,7 @@ if False and __name__ == '__main__':
     lm = 1500.0
     ls = 300.0
     x = r.loglikelihood(syms, wm, ws, lm, ls)
-    print x
+    print(x)
     sys.exit(0)
 
 if False:
@@ -2855,7 +2855,7 @@ if False:
         twelve.append(x)
 
     msg = r.unpack(twelve)
-    #print msg
+    #print(msg)
     assert msg == " K1ABC  W9XYZ EN37"
 
     sys.exit(0)

@@ -102,7 +102,7 @@ def one_test_freq_shift(rate, hz, n, f_shift):
 
 def test_freq_shift():
     x = one_test_freq_shift(12000, 511, 12000*13, 6.25 / 4)
-    print x
+    print(x)
 
     t1 = numpy.random.rand(12000 * 13)
     t1 += costone(12000, 5970, 12000 * 13)
@@ -115,7 +115,7 @@ def test_freq_shift():
 
     diff = t3 - t1
     x = math.sqrt(numpy.mean(diff * diff))
-    print x
+    print(x)
 
     writewav1(t1, "t1.wav", 12000)
     writewav1(t2, "t2.wav", 12000)
@@ -400,7 +400,7 @@ def test_iq2usb():
         t0 = time.time()
         x = one_test_iq2usb(rate, hz, n)
         t1 = time.time()
-        print "%d %d %d: %.3f %.3f" % (rate, hz, n, x, t1 - t0)
+        print("%d %d %d: %.3f %.3f" % (rate, hz, n, x, t1 - t0))
 
 resample_interp = False # use numpy.interp()? vs scipy.signal.resample()
 
@@ -524,14 +524,14 @@ class Resampler:
             if ns < 1:
                 ns = 1
             assert len(self.last) >= ns
-            #print "add %d" % (ns)
+            #print("add %d" % (ns))
             buf = numpy.append(self.last[-ns:], buf)
         if outsec - insec > 0.5 / self.from_rate:
             ns = (outsec - insec) / (1.0 / self.from_rate)
             ns = int(round(ns))
             if ns < 1:
                 ns = 1
-            #print "del %d" % (ns)
+            #print("del %d" % (ns))
             buf = buf[ns:]
         
         self.last = savelast
@@ -600,11 +600,11 @@ def test_resampler():
 
         resample_interp = False
         x = one_test_resampler(r1, r2)
-        print "%d %d False: %.3f" % (r1, r2, x)
+        print("%d %d False: %.3f" % (r1, r2, x))
 
         #resample_interp = True
         #x = one_test_resampler(r1, r2)
-        #print "%d %d True: %.3f" % (r1, r2, x)
+        #print("%d %d True: %.3f" % (r1, r2, x))
 
     resample_interp = ori
 
