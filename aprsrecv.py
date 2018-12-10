@@ -165,9 +165,11 @@ class APRSRecv:
         return sliced
 
   # correlate against a tone (1200 or 2200 Hz).
-  # idea from Sivan Toledo's QEX article.
+  # idea from Sivan Toledo's Jul/Aug 2012 QEX article.
   # (used to use butterworth bandpass filters of order 3
   #  and width 1100 hz, but the following is slightly better).
+  # combining the cos and sin compensates for the fact that
+  # the phase of the received tone isn't known.
   def corr(self, samples, tone):
       global smoothwindow
       win = int(smoothwindow * self.rate / self.baud)
@@ -178,12 +180,14 @@ class APRSRecv:
       return c
 
   # correlate, slice, generate +/- for each sample.
+  # also returns raw correlations, for SNR.
   def slice(self, samples):
     markcorr = self.corr(samples, self.mark)
     spacecorr = self.corr(samples, self.space)
     m1 = self.sliceone(markcorr)
     s1 = self.sliceone(spacecorr)
-    return numpy.subtract(m1, s1)
+    sliced = numpy.subtract(m1, s1)
+    return [ sliced, markcorr, spacecorr ]
 
   def process(self, eof):
     global tonegain, advance
@@ -200,12 +204,14 @@ class APRSRecv:
 
     # no change in emphasis; best when receiver doesn't de-emph,
     # but not right for senders that pre-emph.
-    sliced.append( self.slice(self.raw) )
+    [ sl, markcorr, spacecorr ] = self.slice(self.raw)
+    sliced.append( sl )
 
     # de-emphasize, for a receiver that doesn't de-emph,
     # but senders that do.
     # doesn't seem to help for track 01...
-    #sliced.append( self.slice(deemphasize(self.raw, self.rate)) )
+    # [ sl, markcorr, spacecorr ] = self.slice(deemphasize(self.raw, self.rate)) 
+    # sliced.append(sl)
 
     while self.raw.size >= maxpacket or (eof and self.raw.size > 20*bitsamples):
       # sliced[0] is a candidate for start of packet,
@@ -215,14 +221,16 @@ class APRSRecv:
       bestmsg = None
       bestnsymbols = 0
       beststart = 0
+      bestsnr = 0
 
       for sl in sliced:
-        [ ok, msg, nsymbols, start ] = self.process1(sl)
+        [ ok, msg, nsymbols, start, snr ] = self.process1(sl, markcorr, spacecorr)
         if ok > bestok:
           bestok = ok
           bestmsg = msg
           bestnsymbols = nsymbols
           beststart = self.off + start 
+          bestsnr = snr
 
       if bestok > 0 and self.callback:
         # compute space-to-mark tone strength ratio, to help understand emphasis.
@@ -240,7 +248,7 @@ class APRSRecv:
         #ratio = meanspace / meanmark
         ratio = 1.0
 
-        self.callback(bestok, bestmsg, beststart, ratio)
+        self.callback(bestok, bestmsg, beststart, ratio, snr)
         sys.stdout.flush()
 
       if bestok == 2:
@@ -250,16 +258,16 @@ class APRSRecv:
 
       self.off += trim
       self.raw = self.raw[trim:]
-      #markcorr = markcorr[trim:] # just for debug
-      #spacecorr = spacecorr[trim:] # just for debug
+      markcorr = markcorr[trim:] # for SNR
+      spacecorr = spacecorr[trim:] # for SNR
       for i in range(0, len(sliced)):
         sliced[i] = sliced[i][trim:]
 
   # does a packet start at sliced[0:] ?
   # sliced[] likely has far more samples than needed.
-  # returns [ ok, msg, nsymbols, flagstart ]
+  # returns [ ok, msg, nsymbols, flagstart, snr ]
   # flag starts at sliced[flagstart].
-  def process1(self, sliced):
+  def process1(self, sliced, markcorr, spacecorr):
     global advance
 
     bitsamples = self.rate / float(self.baud)
@@ -275,9 +283,28 @@ class APRSRecv:
 
       [ ok, msg, nsymbols ] = self.finishframe(symbols[8:])
       if ok >= 1:
-        return [ ok, msg, nsymbols, ff ]
+          # SNR
+          sigsum = 0.0
+          sigcount = 0
+          noisesum = 0.0
+          noisecount = 0
 
-    return [ 0, None, 0, 0 ]
+          # indices into sliced/markcorr/spacecorr for the center of each
+          # symbol in the packet, including starting flag.
+          indices1 = indices[0:nsymbols+8]
+
+          # indices into markcorr/spacecorr for mark symbols.
+          marki = indices1[numpy.nonzero(sliced[indices1] > 0)[0]]
+          spacei = indices1[numpy.nonzero(sliced[indices1] <= 0)[0]]
+
+          # average SNR
+          z = numpy.mean(numpy.append(markcorr[marki] / spacecorr[marki],
+                                      spacecorr[spacei] / markcorr[spacei]))
+          snr = math.log(z)
+          
+          return [ ok, msg, nsymbols, ff, snr ]
+
+    return [ 0, None, 0, 0, 0 ]
 
   def dump(self, mark, space, sliced, raw):
     f = open("mark", "w")
@@ -573,7 +600,7 @@ wins = 0
 def benchmark(wavname, verbose):
   global wins
   wins = 0
-  def cb(fate, msg, start, space_to_mark):
+  def cb(fate, msg, start, space_to_mark, snr):
     global wins
     if fate == 2:
       wins = wins + 1
@@ -619,12 +646,12 @@ def optimize(wavname):
             sys.stdout.write("%d\n" % (sc))
             sys.stdout.flush()
 
-def cb(fate, msg, start, space_to_mark):
+def cb(fate, msg, start, space_to_mark, snr):
     # fate=0 -- unlikely to be correct.
     # fate=1 -- CRC failed but syntax look OK.
     # fate=2 -- CRC is correct.
     if fate >= 1:
-        print("%d %d %.1f %s" % (fate, start, space_to_mark, msg))
+        print("%d %d %.1f %.1f %s" % (fate, start, space_to_mark, snr, msg))
 
 def usage():
   sys.stderr.write("Usage: aprsrecv.py [file...] [-sound]\n")
