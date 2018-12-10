@@ -1547,7 +1547,7 @@ class JT65Send:
     # twelve[] is 12 6-bit symbols to send.
     # tone is Hz of sync tone.
     # returns an array of audio samples.
-    def send12(self, twelve, tone, rate):
+    def tones(self, twelve, tone, rate):
         synced = self.symbols(twelve)
 
         samples_per_symbol = int(round(rate * (4096 / 11025.0)))
@@ -1559,25 +1559,25 @@ class JT65Send:
         random.seed(0) # XXX determinism
         
         # G3LTF DL9KR JO40
-        x1 = self.send12([61, 37, 30, 28, 9, 27, 61, 58, 26, 3, 49, 16], 1000, 11025)
+        x1 = self.tones([61, 37, 30, 28, 9, 27, 61, 58, 26, 3, 49, 16], 1000, 11025)
         x1 = numpy.concatenate(([0]*1,  x1, [0]*(8192-1) ))
         #rv = numpy.concatenate( [ [random.random()]*4096 for i in range(0, 128) ] )
         #x1 = x1 * rv
 
         # RA3Y VE3NLS 73
-        x2 = self.send12([46, 6, 32, 22, 55, 20, 11, 32, 53, 23, 59, 16], 1050, 11025)
+        x2 = self.tones([46, 6, 32, 22, 55, 20, 11, 32, 53, 23, 59, 16], 1050, 11025)
         x2 = numpy.concatenate(([0]*4096,  x2, [0]*(8192-4096) ))
         #rv = numpy.concatenate( [ [random.random()]*4096 for i in range(0, 128) ] )
         #x2 = x2 * rv
 
         # CQ DL7ACA JO40
-        x3 = self.send12([62, 32, 32, 49, 37, 27, 59, 2, 30, 19, 49, 16], 1100, 11025)
+        x3 = self.tones([62, 32, 32, 49, 37, 27, 59, 2, 30, 19, 49, 16], 1100, 11025)
         x3 = numpy.concatenate(([0]*5120,  x3, [0]*(8192-5120) ))
         #rv = numpy.concatenate( [ [random.random()]*4096 for i in range(0, 128) ] )
         #x3 = x3 * rv
 
         # VA3UG   F1HMR 73  
-        x4 = self.send12([52, 54, 60, 12, 55, 54, 7, 19, 2, 23, 59, 16], 1150, 11025)
+        x4 = self.tones([52, 54, 60, 12, 55, 54, 7, 19, 2, 23, 59, 16], 1150, 11025)
         x4 = numpy.concatenate(([0]*1,  x4, [0]*(8192-1) ))
         #rv = numpy.concatenate( [ [random.random()]*4096 for i in range(0, 128) ] )
         #x4 = x4 * rv
@@ -1627,7 +1627,7 @@ if False:
   s = JT65Send()
 
   # G3LTF DL9KR JO40
-  x = s.send12([61, 37, 30, 28, 9, 27, 61, 58, 26, 3, 49, 16], 1000, 11025)
+  x = s.tones([61, 37, 30, 28, 9, 27, 61, 58, 26, 3, 49, 16], 1000, 11025)
 
   # inject some bad symbols
   # note x[] has sync in it.
