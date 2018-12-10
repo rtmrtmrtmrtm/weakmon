@@ -134,7 +134,8 @@ def pya_output_rate(card, rate):
 
 class Stream:
     def __init__(self, card, chan, rate):
-        self.use_oss = ("freebsd" in sys.platform)
+        self.use_oss = False
+        #self.use_oss = ("freebsd" in sys.platform)
         self.card = card
         self.chan = chan
 
@@ -221,6 +222,8 @@ class Stream:
 
         # translate time of last sample to UNIX time
         ut = time.time()
+        if self.pya_strm == None:
+            return ( None, pyaudio.paContinue )
         st = self.pya_strm.get_time()
         unix_end = (adc_end - st) + ut
 
@@ -262,6 +265,7 @@ class Stream:
         # pya.open in this sub-process so that pya starts the callback thread
         # here too.
         xpya = pya()
+        self.pya_strm = None
         self.pya_strm = xpya.open(format=pyaudio.paInt16,
                                    input_device_index=self.card,
                                    channels=chans,
