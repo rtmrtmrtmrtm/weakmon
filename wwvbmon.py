@@ -101,6 +101,9 @@ class WWVB:
     self.wav_channels = self.wav.getnchannels()
     self.wav_width = self.wav.getsampwidth()
     self.rate = self.wav.getframerate()
+    # for guess1() / weakutil.freq_from_fft().
+    weakutil.init_freq_from_fft(59 * self.rate)
+    weakutil.init_fft([ 59 * self.rate ])
 
   def readwav(self, chan):
     z = self.wav.readframes(1024)
@@ -135,6 +138,9 @@ class WWVB:
   def opencard(self, desc):
       self.rate = 8000
       self.audio = weakaudio.new(desc, self.rate)
+      # for guess1() / weakutil.freq_from_fft().
+      weakutil.init_freq_from_fft(59 * self.rate)
+      weakutil.init_fft([ 59 * self.rate ])
 
   def gocard(self):
       while True:
@@ -252,7 +258,7 @@ class WWVB:
 
     if False:
         print("saving to aaa.wav, max %.0f" % (numpy.max(self.samples)))
-        weakutil.writewav1(self.samples, "aaa.wav", self.rate)
+        weakutil.writewav(self.samples, "aaa.wav", self.rate)
 
     # pad at start and end in case samples started late / ended early.
     #sm = numpy.mean(self.samples)
