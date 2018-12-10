@@ -15,12 +15,12 @@ import weakaudio
 import weakcat
 import sys
 
-def cb(fate, msg, start, space_to_mark):
+def cb(fate, msg, start, space_to_mark, snr):
     # fate=0 -- unlikely to be correct.
     # fate=1 -- CRC failed but syntax look OK.
     # fate=2 -- CRC is correct.
     if fate >= 2:
-        print("%s" % (msg))
+        print("%.1f %s" % (snr, msg))
 
 def main():
     parser = weakargs.stdparse('Decode APRS.')
