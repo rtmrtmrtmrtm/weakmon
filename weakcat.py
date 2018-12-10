@@ -38,6 +38,8 @@ def open(desc):
         ret = R75(dev, 0x4A)
     if type == "r8600":
         ret = R75(dev, 0x96)
+    if type == "f8101":
+        ret = F8101(dev, 0x8A)
     if type == "ar5000":
         ret = AR5000(dev)
     if type == "sdrip":
@@ -82,7 +84,7 @@ def usage():
     for com in coms:
         sys.stderr.write("  %s\n" % (com))
     sys.stderr.write("radio types for -cat: ")
-    for ty in [ "k3", "rx340", "8711", "sdrip", "sdriq", "r75", "r8500", "r8600", "ar5000", "eb200", "sdrplay", "prc138" ]:
+    for ty in [ "k3", "rx340", "8711", "sdrip", "sdriq", "r75", "r8500", "r8600", "f8101", "ar5000", "eb200", "sdrplay", "prc138" ]:
         sys.stderr.write("%s " % (ty))
     sys.stderr.write("\n")
 
@@ -165,6 +167,12 @@ class K3(object):
 
     def setpower(self, watts):
         self.cmd("PC%03d" % watts)
+
+    def tx(self):
+        pass
+
+    def rx(self):
+        pass
 
 # Ten-Tec RX-340
 class RX340(object):
@@ -316,6 +324,195 @@ class R75(object):
 
     def set_fm_data(self):
         self.cmd(0x06, 0x05, "") # FM
+
+# Icom F8101
+# CI-V commands are not compatible with R75.
+# on Linux, /dev/ttyUSB1
+class F8101(object):
+    def __init__(self, devname, civ):
+        # ic-f8101 CI-V address defaults to 0x8A
+        self.civ = civ
+
+        self.port = serial.Serial(devname,
+                                  timeout=2,
+                                  baudrate=38400,
+                                  parity=serial.PARITY_NONE,
+                                  bytesize=serial.EIGHTBITS)
+
+        self.rx()
+
+        self.printinfo()
+
+    # fetch various parameters from the radio and print them.
+    # for many of them you have to be in MGR mode.
+    def printinfo(self):
+        a = self.cmd([ 0x03 ], b"")
+        hz = self.parse_freq(a)
+        print("freq %d" % (hz))
+
+        a = self.cmd([ 0x1A, 0x34 ], b"")
+        mode = a[1] + 256*a[0]
+        print("mode %04x" % (mode)) 
+
+        a = self.cmd([ 0x1A, 0x37 ], b"")
+        x = a[1] + 256*a[0]
+        print("TX status %04x" % (x)) 
+
+        a = self.cmd([ 0x1C, 0x00 ], b"")
+        print("ptt output %02x" % (a[0])) # 00 RX, 01 PTT TX
+
+        if False:
+            a = self.cmd([ 0x1C, 0x00 ], b"\x01") # transmit!
+            time.sleep(3)
+            a = self.cmd([ 0x1C, 0x00 ], b"\x00") # receive
+
+        a = self.cmd([ 0x1C, 0x01 ], b"")
+        print("tuner %02x" % (a[0]))  # 00 on, 01 through
+
+        cc = [
+            [ "preamp", 0x03, 0x05 ],
+            [ "tuner", 0x03, 0x14 ],
+            [ "ptt tune", 0x03, 0x015 ],
+            [ "power", 0x03, 0x07 ],
+            [ "NB", 0x03, 0x01 ],
+            [ "agc", 0x03, 0x06 ],
+            [ "fan", 0x03, 0x08 ],
+            [ "usb enabled", 0x08, 0x00 ],
+            [ "usb filter", 0x08, 0x02 ],
+            [ "usb source", 0x08, 0x03 ],
+            [ "home", 0x19, 0x04 ],
+        ]
+
+        for c in cc:
+            a = self.cmd([ 0x1A, 0x05, c[1], c[2] ], b"")
+            if len(a) == 2:
+                x = a[1] + 256*a[0]
+                print("%s %04x" % (c[0], x))
+            else:
+                print("%s ???" % (c[0]))
+
+        #self.cmd([ 0x07, 0x00 ], b"") # Set VFO A -- works
+        #self.cmd([ 0x03 ], b"") # read operating freq -- works
+        #self.cmd([ 0x1A, 0x35 ], b"\x80\x67\x45\x23") # set freq -- works
+
+    # given a bytearray from self.cmd() of the
+    # 03 of 1A 35 command, return Hz.
+    def parse_freq(self, a):
+        hz = 0
+        hz += 1 * ((a[0] >> 0) & 0xf)
+        hz += 10 * ((a[0] >> 4) & 0xf)
+        hz += 100 * ((a[1] >> 0) & 0xf)
+        hz += 1000 * ((a[1] >> 4) & 0xf)
+        hz += 10000 * ((a[2] >> 0) & 0xf)
+        hz += 100000 * ((a[2] >> 4) & 0xf)
+        hz += 1000000 * ((a[3] >> 0) & 0xf)
+        hz += 10000000 * ((a[3] >> 4) & 0xf)
+        hz += 100000000 * ((a[4] >> 0) & 0xf)
+        hz += 1000000000 * ((a[4] >> 4) & 0xf)
+        return hz
+
+    # drain and discard any leftover input.
+    def drain(self):
+        n = self.port.in_waiting
+        if n != 0:
+            print("draining %d" % (n))
+        self.port.read(size=n)
+        
+    # send a command, wait for the reply,
+    # return any replied data as a bytearray,
+    # or True for a simple OK reply, or False for
+    # an NG error.
+    # cmd is an array of integers, e.g. [ cmd, subcmd, category, item ].
+    def cmd(self, cmd, data):
+        self.drain()
+
+        # python3's serial module wants bytes, not str.
+        s = b""
+        s += b"\xfe\xfe%c\xe0" % (self.civ)
+        s += bytearray(cmd)
+        if data != None:
+            s += data
+        s += b"\xfd"
+        self.port.write(s)
+        time.sleep(0.01)
+
+        # wait for the reply
+        # OK: fe fe e0 8a fb fd
+        # error: fe fe e0 8a fa fd
+        # reply to 0x03: fe fe e0 8a 03 80 67 45 23 00 fd
+
+        buf = b""
+        while True:
+            x = self.port.read(size=1)
+            if len(x) == 0:
+                # timeout
+                sys.stderr.write("F8101 reply read timeout\n")
+                return False
+            buf += x
+            fefe = buf.rfind(b"\xfe\xfe")
+            if fefe != -1 and buf.endswith(b"\xfd"):
+                # avoid python2/python3 ord() difficulty
+                a = bytearray(buf[fefe:])
+                if a[2] == 0xe0 and a[3] == self.civ:
+                    if False:
+                        for x in a:
+                            sys.stderr.write("%02x " % (x))
+                        sys.stderr.write("\n")
+                    # from radio to us
+                    if len(a) == 6 and a[4] == 0xFB:
+                        return True
+                    if len(a) == 6 and a[4] == 0xFA:
+                        sys.stderr.write("F8101 NG %s %s\n" % (cmd, data))
+                        return False
+                    if a[4:4+len(cmd)] == bytearray(cmd):
+                        i0 = 4 + len(cmd)
+                        return a[i0:len(a)-1]
+  
+    # send a no-op command and wait for the response.
+    # no need for this since all commands are synchronous.
+    def sync(self):
+        pass
+
+    def tx(self):
+        # seems to both switch audio input to USB sound card,
+        # and to activate VOX, so PTT isn't needed.
+        self.cmd([ 0x1A, 0x37 ], b"\x00\x02") # TX by ACC PTT
+
+        # simulate PTT
+        # not needed when PTT ACC set.
+        #self.cmd([ 0x1C, 0x00 ], b"\x01")
+
+        if False:
+            a = self.cmd([ 0x1A, 0x37 ], b"")
+            x = a[1] + 256*a[0]
+            print("TX status %04x" % (x)) 
+
+
+    def rx(self):
+        # release PTT -- return to receive mode
+        self.cmd([ 0x1C, 0x00 ], b"\x00")
+        self.cmd([ 0x1A, 0x37 ], b"\x00\x00") # TX by PTT
+
+    # encode a frequency in hz in BCD.
+    def bcd(self, hz):
+        hz = int(hz)
+        s = b""
+        for i in range(0, 5):
+            d0 = hz % 10
+            hz //= 10
+            d1 = hz % 10
+            hz //= 10
+            s += bytearray([d1*16+d0]) # chr(d1*16 + d0)
+        return s
+
+    # set the frequeny in Hz for vfo=0 (A) or vfo=1 (B / sub-receiver).
+    # does not wait.
+    def setf(self, vfo, fr):
+        data = self.bcd(fr)
+        self.cmd( [ 0x1A, 0x35 ], data )
+
+    def set_usb_data(self):
+        xxx
 
 # AOR AR-5000
 class AR5000(object):
@@ -479,6 +676,12 @@ class PRC138(object):
         self.set_agc("DATA")
         # self.set_pow("HIGH")
         self.set_bw(2.7)
+
+    def tx(self):
+        pass
+
+    def rx(self):
+        pass
 
 class EB200(object):
     def __init__(self, devname):
