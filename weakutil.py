@@ -22,6 +22,7 @@ import sys
 import os
 import math
 import random
+#import scikits.samplerate
 
 have_fftw = False
 try:
@@ -165,9 +166,9 @@ def test_freq_shift():
     x = math.sqrt(numpy.mean(diff * diff))
     print(x)
 
-    writewav1(t1, "t1.wav", 12000)
-    writewav1(t2, "t2.wav", 12000)
-    writewav1(t3, "t3.wav", 12000)
+    writewav(t1, "t1.wav", 12000)
+    writewav(t2, "t2.wav", 12000)
+    writewav(t3, "t3.wav", 12000)
 
 # caller supplies two shifts, in hza[0] and hza[1].
 # shift x[0] by hza[0], ..., x[-1] by hza[1]
@@ -313,7 +314,9 @@ def parabolic(f, x):
 fff_cached_windows = { }
 
 def init_freq_from_fft(n):
-    fff_cached_windows[n] = scipy.signal.blackmanharris(n)
+    n = int(n)
+    if not n in fff_cached_windows:
+        fff_cached_windows[n] = scipy.signal.blackmanharris(n)
 
 # https://gist.github.com/endolith/255291
 def freq_from_fft(sig, rate, minf, maxf):
@@ -366,7 +369,20 @@ def bin_from_fft(sig, rate, bin):
 def moving_average(a, n):
     ret = numpy.cumsum(a, dtype=float)
     ret[n:] = ret[n:] - ret[:-n]
-    return ret[n - 1:] / n
+    ret = ret[n - 1:] / n
+
+    if (n % 2) == 1:
+        slop = n // 2 # ret is short on either end by this
+        assert len(ret) == len(a) - 2*slop
+        ret = numpy.concatenate(( ret[0:slop], ret, ret[-slop:] ))
+    else:
+        slop = n // 2 # ret is short on either end by this
+        assert len(ret) == len(a) - 2*slop + 1
+        ret = numpy.append(ret[0:slop], ret)
+        if slop > 1:
+            ret = numpy.append(ret, ret[-(slop-1):])
+
+    return ret
 
 # IQ -> USB
 # the result is bad at the start and end,
@@ -467,7 +483,10 @@ def test_iq2usb():
         t1 = time.time()
         print("%d %d %d: %.3f %.3f" % (rate, hz, n, x, t1 - t0))
 
-resample_interp = False # use numpy.interp()? vs scipy.signal.resample()
+# "scipy" -- scipy.signal.resample(), the default
+# "interp" -- numpy.interp()
+# "rabbit" -- Secret Rabbit Code
+which_resampler = "scipy"
 
 # change sampling rate from from_rate to to_rate.
 # buf must already be low-pass filtered if to_rate < from_rate.
@@ -477,6 +496,14 @@ def resample(buf, from_rate, to_rate):
     # how many samples do we want?
     target = int(round((len(buf) / float(from_rate)) * to_rate))
 
+    if which_resampler == "rabbit":
+        ratio = to_rate / float(from_rate)
+        buf1 = scikits.samplerate.resample(buf, ratio, 'sinc_best')
+        return buf1
+
+    if from_rate == to_rate:
+        return buf
+
     if from_rate == to_rate * 2:
         buf = buf[0::2]
         return buf
@@ -484,6 +511,27 @@ def resample(buf, from_rate, to_rate):
     if from_rate == to_rate * 4:
         buf = buf[0::4]
         return buf
+
+    if False:
+        if from_rate == to_rate * 10:
+            print "resample/10", from_rate, to_rate
+            buf = buf[0::10]
+            return buf
+
+        if from_rate == to_rate * 20:
+            print "resample/20", from_rate, to_rate
+            buf = buf[0::20]
+            return buf
+
+        if from_rate == to_rate * 30:
+            print "resample/30", from_rate, to_rate
+            buf = buf[0::30]
+            return buf
+
+        if from_rate == to_rate * 40:
+            print "resample/40", from_rate, to_rate
+            buf = buf[0::40]
+            return buf
 
     # 11025 -> 441, for wwvmon.py.
     if from_rate == to_rate * 25:
@@ -499,10 +547,7 @@ def resample(buf, from_rate, to_rate):
         buf = buf[0::64]
         return buf
 
-    if from_rate == to_rate:
-        return buf
-
-    if resample_interp == False:
+    if which_resampler == "scipy":
         # seems to produce better results than numpy.interp() but
         # is slower, sometimes much slower.
         # pad to power of two length
@@ -511,12 +556,14 @@ def resample(buf, from_rate, to_rate):
         want = (len(buf) / float(from_rate)) * to_rate
         want = int(round(want))
         buf = scipy.signal.resample(buf, want)
-    else:
+    elif which_resampler == "interp":
         secs =  len(buf)*(1.0/from_rate)
         ox = numpy.arange(0, secs, 1.0 / from_rate)
         ox = ox[0:len(buf)]
         nx = numpy.arange(0, secs, 1.0 / to_rate)
         buf = numpy.interp(nx, ox, buf)
+    else:
+        assert False
 
     if len(buf) > target:
         buf = buf[0:target]
@@ -546,6 +593,9 @@ class Resampler:
         # rates correct.
         self.nin = 0
         self.nout = 0
+
+        if which_resampler == "rabbit":
+            self.rabbit = scikits.samplerate.Resampler('sinc_best', channels=1)
 
     # how much will output be delayed?
     # in units of output samples.
@@ -612,7 +662,11 @@ class Resampler:
             buf = zi[0]
             self.zi = zi[1]
 
-        buf = resample(buf, self.from_rate, self.to_rate)
+        if which_resampler == "rabbit":
+            ratio = self.to_rate / float(self.from_rate)
+            buf = self.rabbit.process(buf, ratio, end_of_input=False)
+        else:
+            buf = resample(buf, self.from_rate, self.to_rate)
             
         self.nin += inlen
         self.nout += len(buf)
@@ -620,7 +674,7 @@ class Resampler:
         return buf
 
 def one_test_resampler(from_rate, to_rate):
-    hz = 511
+    hz = 100
     t1 = costone(from_rate, hz, from_rate*10)
 
     r = Resampler(from_rate, to_rate)
@@ -643,7 +697,7 @@ def one_test_resampler(from_rate, to_rate):
     diff = t2 - expecting
     x = math.sqrt(numpy.mean(diff * diff))
 
-    if True:
+    if False:
         import matplotlib.pyplot as plt
         i0 = len(diff) - 200
         i1 = i0 + 200
@@ -663,6 +717,10 @@ def test_resampler():
 
     for [ r1, r2 ] in [
             [ 32000, 12000 ],
+            [ 3000, 400 ],
+            [ 3000, 300 ],
+            [ 8000, 400 ],
+            [ 8000, 300 ],
             ]:
 
         resample_interp = False
@@ -675,9 +733,9 @@ def test_resampler():
 
     resample_interp = ori
 
-which_fft = "fftw" # numpy, scipy, fftw
+which_fft = "numpy" # numpy, scipy, fftw
 if have_fftw == False:
-    which_fft = "numpy"
+    which_fft = "scipy"
 fftw_info = { }
 fftw_n_info = { }
 fft_inited = False
@@ -689,7 +747,7 @@ def init_fft(sizes):
     ##if pyfftw.interfaces.cache.is_enabled() == False:
     ##    pyfftw.interfaces.cache.enable()
     ##    pyfftw.interfaces.cache.set_keepalive_time(30.0)
-    if have_fftw:
+    if False and have_fftw:
         for size in sizes:
             if not (size in fftw_info):
                 a = pyfftw.empty_aligned(size, dtype='float64')
@@ -802,7 +860,7 @@ def agc(samples, winlen):
     return samples
 
 # write a mono file
-def writewav1(left, filename, rate):
+def writewav(left, filename, rate):
   ww = wave.open(filename, 'wb')
   ww.setnchannels(1)
   ww.setsampwidth(2)
@@ -873,10 +931,10 @@ def readwav(filename):
         if len(z) < 1:
             break
         if width == 1:
-            zz = numpy.fromstring(z, numpy.int8)
+            zz = numpy.frombuffer(z, numpy.int8)
         else:
             assert (len(z) % 2) == 0
-            zz = numpy.fromstring(z, numpy.int16)
+            zz = numpy.frombuffer(z, numpy.int16)
         if channels == 2:
             zz = zz[0::2] # left channel
         bufbuf.append(zz)
