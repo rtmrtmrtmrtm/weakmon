@@ -1,9 +1,9 @@
 //
-// LDPC decoder for FT8.
+// LDPC decoder for new FT8.
 //
 // given a 174-bit codeword as an array of log-likelihood of zero,
 // return a 174-bit corrected codeword, or zero-length array.
-// last 87 bits are the (systematic) plain-text.
+// first 91 bits are the (systematic) plain-text.
 // this is an implementation of the sum-product algorithm
 // from Sarah Johnson's Iterative Error Correction book.
 // codeword[i] = log ( P(x=0) / P(x=1) )
@@ -36,25 +36,26 @@ float fast_tanh(float x){
 // codeword is 174 log-likelihoods.
 // plain is a return value, 174 ints, to be 0 or 1.
 // iters is how hard to try.
-// ok == 87 means success.
+// ok is the number of parity checks that worked out,
+// ok == 83 means success.
 void
 ldpc_decode(double codeword[], int iters, int plain[], int *ok)
 {
-  double m[87][174];
-  double e[87][174];
+  double m[83][174];
+  double e[83][174];
   int best_score = -1;
   int best_cw[174];
   
   for(int i = 0; i < 174; i++)
-    for(int j = 0; j < 87; j++)
+    for(int j = 0; j < 83; j++)
       m[j][i] = codeword[i];
 
   for(int i = 0; i < 174; i++)
-    for(int j = 0; j < 87; j++)
+    for(int j = 0; j < 83; j++)
       e[j][i] = 0.0;
 
   for(int iter = 0; iter < iters; iter++){
-    for(int j = 0; j < 87; j++){
+    for(int j = 0; j < 83; j++){
       for(int ii1 = 0; ii1 < 7; ii1++){
         int i1 = Nm[j][ii1] - 1;
         if(i1 < 0)
@@ -78,18 +79,10 @@ ldpc_decode(double codeword[], int iters, int plain[], int *ok)
       cw[i] = (l <= 0.0);
     }
     int score = ldpc_check(cw);
-    if(score == 87){
-#if 0
-      int cw1[174];
+    if(score == 83){
       for(int i = 0; i < 174; i++)
-        cw1[i] = cw[colorder[i]];
-      for(int i = 0; i < 87; i++)
-        plain[i] = cw1[174-87+i];
-#else
-      for(int i = 0; i < 174; i++)
-        plain[i] = cw[colorder[i]];
-#endif
-      *ok = 87;
+        plain[i] = cw[i];
+      *ok = 83;
       return;
     }
 
@@ -114,17 +107,9 @@ ldpc_decode(double codeword[], int iters, int plain[], int *ok)
     }
   }
 
-  // decode didn't work, return something anyway.
-#if 0
-  int cw1[174];
+  // decode didn't work, return best guess.
   for(int i = 0; i < 174; i++)
-    cw1[i] = best_cw[colorder[i]];
-  for(int i = 0; i < 87; i++)
-    plain[i] = cw1[174-87+i];
-#else
-  for(int i = 0; i < 174; i++)
-    plain[i] = best_cw[colorder[i]];
-#endif
+    plain[i] = best_cw[i];
 
   *ok = best_score;
 }
@@ -132,15 +117,15 @@ ldpc_decode(double codeword[], int iters, int plain[], int *ok)
 //
 // does a 174-bit codeword pass the FT8's LDPC parity checks?
 // returns the number of parity checks that passed.
-// 87 means total success.
+// 83 means total success.
 //
 int
 ldpc_check(int codeword[])
 {
   int score = 0;
   
-  // Nm[87][7]
-  for(int j = 0; j < 87; j++){
+  // Nm[83][7]
+  for(int j = 0; j < 83; j++){
     int x = 0;
     for(int ii1 = 0; ii1 < 7; ii1++){
       int i1 = Nm[j][ii1] - 1;
@@ -157,12 +142,16 @@ ldpc_check(int codeword[])
 void
 ft8_crc(int msg1[], int msglen, int out[12])
 {
-  // the FT8 polynomial for 12-bit CRC.
-  int div[] = { 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0 };
+  // the old FT8 polynomial for 12-bit CRC, 0xc06.
+  // int div[] = { 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0 };
 
-  // append 12 zeros.
-  int *msg = (int *)malloc(sizeof(int) * (msglen + 12));
-  for(int i = 0; i < msglen + 12; i++){
+  // the new FT8 polynomial for 14-bit CRC, 0x2757,
+  // with leading 1 bit.
+  int div[] = { 1,   1, 0,   0, 1, 1, 1,   0, 1, 0, 1,   0, 1, 1, 1 };
+
+  // append 14 zeros.
+  int *msg = (int *)malloc(sizeof(int) * (msglen + 14));
+  for(int i = 0; i < msglen + 14; i++){
     if(i < msglen){
       msg[i] = msg1[i];
     } else {
@@ -172,31 +161,31 @@ ft8_crc(int msg1[], int msglen, int out[12])
 
   for(int i = 0; i < msglen; i++){
     if(msg[i]){
-      for(int j = 0; j < 13; j++){
+      for(int j = 0; j < 15; j++){
         msg[i+j] = (msg[i+j] + div[j]) % 2;
       }
     }
   }
 
-  for(int i = 0; i < 12; i++){
+  for(int i = 0; i < 14; i++){
     out[i] = msg[msglen+i];
   }
 
   free(msg);
 }
 
-// rows is 87.
-// m[174][174]. 
+// rows is 91, cols is 174.
+// m[174][2*91]. 
 // m's right half should start out as zeros.
 // m's upper-right quarter will be the desired inverse.
 void
-gauss_jordan(int rows, int m[2*rows][2*rows], int which[rows], int *ok)
+gauss_jordan(int rows, int cols, int m[cols][2*rows], int which[rows], int *ok)
 {
   *ok = 0;
 
   for(int row = 0; row < rows; row++){
     if(m[row][row] != 1){
-      for(int row1 = row+1; row1 < 2*rows; row1++){
+      for(int row1 = row+1; row1 < cols; row1++){
         if(m[row1][row] == 1){
           // swap m[row] and m[row1]
           for(int col = 0; col < 2*rows; col++){
@@ -219,7 +208,7 @@ gauss_jordan(int rows, int m[2*rows][2*rows], int which[rows], int *ok)
     // lazy creation of identity matrix in the upper-right quarter
     m[row][rows+row] = (m[row][rows+row] + 1) % 2;
     // now eliminate
-    for(int row1 = 0; row1 < 2*rows; row1++){
+    for(int row1 = 0; row1 < cols; row1++){
       if(row1 == row)
         continue;
       if(m[row1][row] != 0){
