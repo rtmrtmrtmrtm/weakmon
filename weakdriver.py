@@ -201,7 +201,7 @@ class Driver:
             print("reporting to pskreporter as %s at %s" % (self.mycall, self.mygrid))
             self.pskr = pskreport.T(self.mycall, self.mygrid, "weakmon-0.3", False)
         else:
-            print("not reporting to pskreporter since call/grid not in weak.cfg")
+            #print("not reporting to pskreporter since call/grid not in weak.cfg")
             self.pskr = None
 
         # all messages decoded.
@@ -758,7 +758,7 @@ class Driver:
     # generate audio signal for sending.
     def audio(self, hz, msg):
         twelve = self.sender.pack(msg)
-        x1 = self.sender.send12(twelve, hz, self.snd_rate)
+        x1 = self.sender.tones(twelve, hz, self.snd_rate)
 
         # keep levels well below max sound card output.
         # but RigBlaster needs this to be at least 0.3 to
@@ -969,6 +969,13 @@ class Driver:
 
     # open sound card, create ft8 instance.
     def soundsetup(self):
+        if self.outcard != None:
+            # do this early because the Mac sound system gets
+            # upset if threads are already running.
+            # we want 12000, but some cards don't support it.
+            outcard = int(self.outcard)
+            self.snd_rate = weakaudio.pya_output_rate(outcard, 12000)
+
         # receive card(s) and cat(s)
         self.r = [ ]    # FT8 instance per sound card
         self.cats = [ ] # CAT receiver (or transceiver) per sound card
@@ -1002,7 +1009,6 @@ class Driver:
         if self.outcard != None:
             # we want 12000, but some cards don't support it.
             outcard = int(self.outcard)
-            self.snd_rate = weakaudio.pya_output_rate(outcard, 12000)
             if self.snd_rate == 44100:
                 self.snd_rate = 48000
                 print("for rigblaster, output rate %d rather than 44100 or 12000" % (self.snd_rate))
