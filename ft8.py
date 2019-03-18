@@ -78,7 +78,7 @@ down200 = False # process1() that down-converts to 200 hz / 32 samples/symbol
 #   thus: 79 FSK-8 symbols
 # total transmission time is 12.64 seconds
 
-costas_symbols = [ 3, 1, 4, 0, 6, 4, 2 ] # new FT8
+costas_symbols = [ 3, 1, 4, 0, 6, 5, 2 ] # new FT8
 
 # gray map for encoding 3-bit chunks of the 174 bits,
 # after LDPC and before generating FSK-8 tones.
