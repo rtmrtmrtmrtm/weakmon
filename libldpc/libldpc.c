@@ -1,5 +1,5 @@
 //
-// LDPC decoder for new FT8.
+// Low Density Parity Check (LDPC) decoder for new FT8.
 //
 // given a 174-bit codeword as an array of log-likelihood of zero,
 // return a 174-bit corrected codeword, or zero-length array.
@@ -97,8 +97,8 @@ ldpc_decode(double codeword[], int iters, int plain[], int *ok)
         int j1 = Mn[i][ji1] - 1;
         double l = codeword[i];
         for(int ji2 = 0; ji2 < 3; ji2++){
-          if(ji1 != ji2){
-            int j2 = Mn[i][ji2] - 1;
+          int j2 = Mn[i][ji2] - 1;
+          if(j1 != j2){
             l += e[j2][i];
           }
         }
