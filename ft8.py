@@ -1280,7 +1280,7 @@ def gray_common(b174, mm):
     return a174
 
 if False:
-    print "testing gray_code"
+    print("testing gray_code")
     b174 = numpy.random.randint(0, 2, 174)
     a174 = gray_code(b174)
     bb174 = un_gray_code(a174)
@@ -1969,8 +1969,6 @@ class FT8:
         samples_minute = self.minute(samples_time + 1)
 
         t0 = time.time()
-
-        #print "process0 min_hz %s max_hz %s" % (min_hz, max_hz)
 
         down_hz = 0
         if top_down and min_hz > 500 and max_hz - min_hz < 1400 and (self.cardrate % 3000) == 0:
@@ -3159,8 +3157,6 @@ class FT8:
         # decode LDPC(174,91)
         [ ldpc_ok, a91 ] = ldpc_decode(ll174)
 
-        #print "process2 hz %.1f ldpc_ok=%s msg=%s" % (hz, ldpc_ok, self.unpack(a91))
-
         if self.check91(a91, ldpc_ok):
             # fast path for success.
             return self.process3(hz, offset, snr, a91, ldpc_ok)
@@ -3207,7 +3203,6 @@ class FT8:
                     dec.hint = hint
                     if "CQ" in self.hints1:
                         dec.hint = "CQ " + dec.hint
-                    print "hints2 %s on %s -> %s" % (dec.hint, self.band, dec.msg)
                     sys.stdout.flush()
                     return dec
 

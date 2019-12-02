@@ -514,22 +514,22 @@ def resample(buf, from_rate, to_rate):
 
     if False:
         if from_rate == to_rate * 10:
-            print "resample/10", from_rate, to_rate
+            print("resample/10", from_rate, to_rate)
             buf = buf[0::10]
             return buf
 
         if from_rate == to_rate * 20:
-            print "resample/20", from_rate, to_rate
+            print("resample/20", from_rate, to_rate)
             buf = buf[0::20]
             return buf
 
         if from_rate == to_rate * 30:
-            print "resample/30", from_rate, to_rate
+            print("resample/30", from_rate, to_rate)
             buf = buf[0::30]
             return buf
 
         if from_rate == to_rate * 40:
-            print "resample/40", from_rate, to_rate
+            print("resample/40", from_rate, to_rate)
             buf = buf[0::40]
             return buf
 
