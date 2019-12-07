@@ -10,7 +10,6 @@
 #
 
 import numpy
-import numpy.linalg
 import wave
 import scipy
 import scipy.signal
@@ -18,51 +17,88 @@ import sys
 import os
 import math
 import time
-import copy
-import calendar
-import subprocess
 import multiprocessing
 import threading
 import re
 import random
-from scipy.signal import lfilter
 import ctypes
 import weakaudio
 import weakutil
-import ctypes
 
 #
 # tuning parameters.
 #
-budget = 2 # max seconds of time for decoding.
-coarse_fstep = 2 # coarse search granularity, per FFT bin
-coarse_tstep = 4 # coarse search granularity, per symbol time
-coarse_tminus = 1.5 # start search this many seconds before 0.5
-coarse_tplus = 1.6 # end search this many seconds after 0.5
+budget = 2.2 # max seconds of time for decoding.
+pass0_fstep = 2 # coarse search granularity, per FFT bin
+pass0_tstep = 2 # coarse search granularity, per symbol time
+passN_fstep = 2 # coarse search granularity, per FFT bin
+passN_tstep = 4 # coarse search granularity, per symbol time
+pass0_tminus = 2.2 # start search this many seconds before 0.5
+pass0_tplus = 2.7 # end search this many seconds after 0.5
+passN_tminus = 1.5
+passN_tplus = 1.8
 coarse_no    = 1 # number of best offsets to use per hz
 fine_no    = 1 # number of best fine offsets to look at
-fine_fstep = 2 # fine-tuning steps per coarse_fstep
-fine_tstep = 4 # fine-tuning steps per coarse_tstep
+fine_fstep = 4 # fine-tuning steps per coarse_fstep
+fine_tstep = 8 # fine-tuning steps per coarse_tstep
 start_adj = 0.1 # signals seem on avg to start this many seconds late.
-ldpc_iters = 15 # how hard LDPC should work
+ldpc_iters = 30 # how hard LDPC should work on pass 0
 softboost = 1.0 # log(prob) if #2 symbol has same bit value
-do_subtract = 4 # 0 none, 1 once per unique decode, 2 three per unique, 3 once per decode
-subgap = 1.25  # extra subtract()s this many hz on either side of main bin
+do_subtract = 1 # 0 none, 1 once per unique decode, 2 three per unique, 3 once per decode
+subgap = 0.8  # extra subtract()s this many hz on either side of main bin
 substeps = 16 # subtract phase steps, in 2pi
-subpasses = 3 # 0 means no subtraction, 1 means subtract, 2 means another subtraction pass
+subpasses = 2 # 0 means no subtraction, 1 means subtract, 2 means another subtraction pass
+pass0_frac = 1.0
+pass0_hints = True # hints in pass 0 (as well as later passes)?
 contrast_weight = 0.5
-noise_factor = 1.0 / 7.0 # for strength()
-top_high_order = 0 # 0 for cheby, 7 or 9 for butter
-top_low_order = 6
-bottom_low_order = 0
+noise_factor = 0.8 # for strength()
+top_high_order = 0 # 0 for cheby, 19 for butter
+high_cutoff = 1.05
+low_pass_order = 0 # 15
 top_down = True
 bottom_slow = True
-osd_crc = False
-osd_order = 1
-phase_gran = 100 # phase_drift() precision -- pi/phase_gran
+osd_crc = False # True means OSD only accepts if CRC is correct
+osd0_crc = True # True means OSD accepts if depth=0 CRC is correct
+osd_depth = 6
+osd_thresh = -500
 already_o = 1
 already_f = 1
 down200 = False # process1() that down-converts to 200 hz / 32 samples/symbol
+use_apriori = True
+nchildren = 4
+child_overlap = 30
+osd_no_snr = False
+padfactor = 0.1 # quiet-ish before/after padding
+osd_hints = False # use OSD on hints BUT causes lots of false pseudo-juicy CQs!
+down_cutoff = 0.45 # low-pass filter cutoff before down-sampling
+cheb_cut1 = 0.48
+cheb_cut2 = 0.61
+cheb_ripple_pass = 0.5
+cheb_atten_stop = 50
+cheb_high_minus = 40
+cheb_high_plus = 60
+hint_tol = 9 # look for CQ XXX hints in this +/- hz range of where heard
+crc_and_83 = True # True means require both CRC and LDPC
+ldpc_thresh = 83 # 83 means all LDPC check-bits must be correct
+snr_overlap = 3 # -1 means don't convert to snr, 0 means each sym time by itself
+snr_wintype = "blackman"
+real_min_hz = 150
+real_max_hz = 2900
+sub_amp_win = 2
+adjust_hz_for_sub = True
+adjust_off_for_sub = True
+yes_mul = 1.0
+yes_add = 0.0
+no_mul = 1.0
+no_add = 0.0
+soft1 = 7
+soft2 = 8
+soft3 = 4
+soft4 = 6
+guard200 = 10
+order200 = 5
+strength_div = 4.0
+decimate_order = 8
 
 # FT8 modulation and protocol definitions.
 # 1920-point FFT at 12000 samples/second
@@ -594,7 +630,7 @@ def ldpc_encode(plain):
 # codeword[i] = log ( P(x=0) / P(x=1) )
 # returns [ nok, plain ], where nok is the number of parity
 # checks that worked out, should be 83=174-91.
-def ldpc_decode_python(codeword):
+def ldpc_decode_python(codeword, ldpc_iters):
     # 174 codeword bits:
     #   91 systematic data bits
     #   83 parity checks
@@ -782,9 +818,9 @@ if False:
 
     sys.exit(1)
 
-def ldpc_test():
+def ldpc_test(ldpci):
     tt = 0.0
-    niters = 1000
+    niters = 5000
     ok = 0
     for iter in range(0, niters):
         # ldpc_encode() takes 91 bits.
@@ -803,18 +839,33 @@ def ldpc_test():
 
         if True:
             # check decode is perfect before wrecking bits.
-            [ nn, d91 ] = ldpc_decode(ll174)
+            [ nn, d91 ] = ldpc_decode(ll174, ldpci)
             assert numpy.array_equal(a91, d91)
             assert nn == 83
 
         # wreck some bits
-        for junk in range(0, 70):
-            ll174[random.randint(0, len(ll174)-1)] = (random.random() - 0.5) * 4
+        #for junk in range(0, 70):
+        #    ll174[random.randint(0, len(ll174)-1)] = (random.random() - 0.5) * 4
+
+        perm = numpy.random.permutation(len(ll174))
+        perm = perm[0:70]
+        for i in perm:
+            p = random.random()
+            bit = a174[i]
+            if random.random() > p:
+                # flip the bit
+                bit = 1 - bit
+            if bit == 0:
+                p = 0.5 + (p / 2)
+            else:
+                p = 0.5 - (p / 2)
+            ll = math.log(p / (1.0 - p))
+            ll174[i] = ll
 
         t0 = time.time()
 
         # decode LDPC(174,91)
-        [ _, d91 ] = ldpc_decode(ll174)
+        [ _, d91 ] = ldpc_decode(ll174, ldpci)
 
         t1 = time.time()
         tt += t1 - t0
@@ -822,7 +873,7 @@ def ldpc_test():
         if numpy.array_equal(a91, d91):
             ok += 1
 
-    print("ldpc_iters %d, success %.2f, %.6f sec/call" % (ldpc_iters,
+    print("ldpc_iters %d, success %.2f, %.6f sec/call" % (ldpci,
                                                           ok / float(niters),
                                                           tt / niters))
 
@@ -850,7 +901,7 @@ def ldpc_test():
 # return is  [ ok, 83 bits ].
 # ok is 83 if all ldpc parity checks worked, < 83 otherwise.
 # result is usually garbage if ok < 83.
-def ldpc_decode_c(codeword):
+def ldpc_decode_c(codeword, ldpc_iters):
     double174 = ctypes.c_double * 174
     int174 = ctypes.c_int * 174
 
@@ -876,14 +927,17 @@ def ldpc_decode_c(codeword):
 
 # returns [ nok, plain ], where nok is the number of parity
 # checks that worked out, should be 83=174-91.
-def ldpc_decode(codeword):
+def ldpc_decode(codeword, ldpc_iters):
     if libldpc != None:
-        return ldpc_decode_c(codeword)
+        return ldpc_decode_c(codeword, ldpc_iters)
     else:
-        return ldpc_decode_python(codeword)
+        return ldpc_decode_python(codeword, ldpc_iters)
 
 if False:
-    ldpc_test()
+    ldpc_test(1*17)
+    ldpc_test(2*17)
+    ldpc_test(4*17)
+    ldpc_test(8*17)
     sys.exit(1)
     # nov 30 2018:
     # C:      ldpc_iters 15, success 0.59, 0.000383 sec/call
@@ -891,6 +945,11 @@ if False:
     # dec 3 2018:
     # ldpc_iters 15, success 0.45, 0.000339 sec/call
     #   XXX why worse now?
+    # apr 26 2019:
+    # ldpc_iters 17, success 0.46, 0.000139 sec/call
+    # ldpc_iters 34, success 0.51, 0.000183 sec/call
+    # ldpc_iters 68, success 0.51, 0.000272 sec/call
+    # ldpc_iters 136, success 0.52, 0.000436 sec/call
 
 # gauss-jordan elimination of rows.
 # m[row][col]
@@ -1003,13 +1062,97 @@ if False:
     test_gauss_jordan()
     sys.exit(1)
 
+# turn an array of bits into an integer.
+# for unpacking FT8 messages.
+# MSB, most-significant bit first.
+# works with bignums.
+def un(a):
+    if sys.version_info.major >= 3:
+        x = 0
+        for i, b in enumerate(reversed(a)):
+            # b is numpy.int32, which is not
+            # a bignum, so must convert to int().
+            x = x + (int(b) << i)
+    else:
+        x = long(0)
+        for i, b in enumerate(reversed(a)):
+            x = x + (long(b) << i)
+    return x
+
+# turn an integer into an array of bits.
+# for packing FT8 messages.
+# MSB.
+# works with bignums.
+def bv(x, n):
+    a = numpy.zeros(n, dtype=numpy.int32)
+    for i in range(0, n):
+        a[i] = (x >> (n - i - 1)) & 1
+    return a
+
+if False:
+    # check that un() and bv() can handle numbers
+    # larger than 2^32, by using Python's
+    # bignum ("long") feature.
+    bbb = numpy.ones(71, dtype=numpy.int32)
+    bbb[7] = 0
+    bbb[55] = 0
+    x = un(bbb)
+    ccc = bv(x, len(bbb))
+    print(bbb)
+    print(ccc)
+    assert numpy.array_equal(bbb, ccc)
+    sys.exit(0)
+
+# does this OSD decode look plausible?
+def osd_check(plain):
+    if numpy.all(plain==0) == True:
+        # all zeros
+        return False
+    if un(plain[74:74+3]) != 1:
+        # i3 != 1
+        return False
+    if osd_crc and check_crc(plain) == False:
+        return False
+    return True
+
+# xplain is 91 bits.
+# codeword is the received 174 log-likelihoods.
+# return a score, smaller is better.
+def osd_score(xplain, codeword):
+    two = numpy.array([ 4.6, -4.6 ]) # for hard->soft conversion
+    xcode = ldpc_encode(xplain)
+    xsoftcode = two[xcode]
+    xscore = 0.0 - numpy.sum(xsoftcode * codeword)
+    return xscore
+
+def junkdec(d91):
+    crcok = check_crc(d91)
+    r = FT8()
+    msg = None
+    dec = r.unpack(d91)
+    if dec != None:
+        msg = dec.msg
+    x = "%s" % (msg)
+    if crcok:
+        x += " YYY"
+    return x
+
 # ordered statistics decoder for LDPC and new FT8.
 # idea from wsjt-x.
 # codeword[i] = log ( P(x=0) / P(x=1) )
 # codeword has 174 bits.
-def osd_decode(codeword, order):
+# returns [ 91 bits, score ]
+def osd_decode(codeword, depth):
 
     # first 91 bits are plaintext, remaining 83 are parity.
+
+    if True:
+        # force i3=1, with high strength.
+        maxll = numpy.max(abs(codeword))
+        codeword = numpy.copy(codeword)
+        codeword[74] = maxll  # 0
+        codeword[75] = maxll  # 0
+        codeword[76] = -maxll # 1
 
     # we're going to use the strongest 91 bits of codeword.
     strength = abs(codeword)
@@ -1051,56 +1194,45 @@ def osd_decode(codeword, order):
     # flip one or more bits in y1
     # see which version of y1 reconstructs to codeword closest to received
 
-    two = numpy.array([ 4.6, -4.6 ]) # for hard->soft conversion
-
     best_plain = numpy.array([])
     best_score = None # lower is better
 
-    # order 0: don't flip any bits
+    # don't flip any bits
 
     xplain = numpy.mod(numpy.matmul(gen1_inv, y1), 2)
-    xcode = ldpc_encode(xplain)
-    xsoftcode = two[xcode]
-    xscore = numpy.sum(numpy.square(xsoftcode - codeword))
 
-    if osd_crc == False or check_crc(xplain):
+    xscore = osd_score(xplain, codeword)
+    if xscore < osd_thresh and osd_check(xplain):
+        if osd0_crc and check_crc(xplain):
+            return [ xplain, 0 ]
+        # print("depth=X score=%d %s" % (xscore, junkdec(xplain)))
         best_plain = xplain
         best_score = xscore # lower is better
 
-    if order >= 1:
-        # order 1: flip one bit
-        for i in range(0, len(y1)):
-            y1[i] = (y1[i] + 1) % 2
-            xplain = numpy.mod(numpy.matmul(gen1_inv, y1), 2)
-            y1[i] = (y1[i] + 1) % 2
-            xcode = ldpc_encode(xplain)
-            xsoftcode = two[xcode]
-            xscore = numpy.sum(numpy.square(xsoftcode - codeword))
-            if best_score == None or xscore < best_score:
-                if osd_crc == False or check_crc(xplain):
-                    best_plain = xplain
-                    best_score = xscore
+    # flip a few single bits, weakest first.
+    # this is not entirely justified since it's probably
+    # entire symbols that are bad. on the other hand,
+    # the log-likelyhood and gray code machinery will
+    # probably give the low bit of each symbol the
+    # lowest strength.
 
-    if order >= 2:
-        # order 2: flip two bits
-        for i in range(0, len(y1)):
-            for j in range(0, len(y1)):
-                y2 = numpy.copy(y1)
-                y2[i] = (y2[i] + 1) % 2
-                y2[j] = (y2[j] + 1) % 2
-                xplain = numpy.mod(numpy.matmul(gen1_inv, y2), 2)
-                xcode = ldpc_encode(xplain)
-                xsoftcode = two[xcode]
-                xscore = numpy.sum(numpy.square(xsoftcode - codeword))
-                if best_score == None or xscore < best_score:
-                    if osd_crc == False or check_crc(xplain):
-                        best_plain = xplain
-                        best_score = xscore
+    for ii in range(0, depth):
+        i = len(y1) - 1 - ii
+        y1[i] = (y1[i] + 1) % 2
+        xplain = numpy.mod(numpy.matmul(gen1_inv, y1), 2)
+        y1[i] = (y1[i] + 1) % 2
+        xscore = osd_score(xplain, codeword)
+        if xscore < osd_thresh and osd_check(xplain) and (best_score == None or xscore < best_score):
+            # print("ii=%d score %s->%d %s" % (ii, best_score, xscore, junkdec(xplain)))
+            best_plain = xplain
+            best_score = xscore
+            
+    return [ best_plain, best_score ]
 
-    return best_plain
 
-def osd_test_gen_1(nbad):
+def osd_test_gen(nbad):
     a91 = numpy.random.randint(0, 2, 91, dtype=numpy.int32)
+    a91[74:74+3] = bv(1, 3) # i3 == 1, the most common case, for osd_check()
     cksum = crc(numpy.append(a91[0:77], numpy.zeros(5, dtype=numpy.int32)),
                 crc14poly)
     a91[-14:] = cksum
@@ -1113,109 +1245,92 @@ def osd_test_gen_1(nbad):
     ll174 *= 4.5
     #ll174 *= numpy.random.random(len(ll174))
 
-    # ll174[i] ranges from -1..1 (for bit value of 1 or 0)
+    good174 = numpy.copy(ll174)
 
-    # disturb n bits
-    if True:
-        bb = numpy.array(range(0, 174), dtype=numpy.int32)
-        numpy.random.shuffle(bb)
-        for i in range(0, nbad):
-            #ll174[bb[i]] *= -1
+    # ll174[i] is -4.5 or 4.5, for bit value of 1 or 0
+
+    # disturb nbad distinct bits
+    bb = numpy.array(range(0, 174), dtype=numpy.int32)
+    numpy.random.shuffle(bb)
+    for i in range(0, nbad):
+        if True:
+            # flip the bit
+            ll174[bb[i]] *= -1
+            ll174[bb[i]] *= 0.5
+            ll174[bb[i]] *= random.random()
+        else:
+            # randomize the bit
             ll174[bb[i]] = random.random() - 0.5
             ll174[bb[i]] /= 5.0
-    else:
-        for junk in range(0, nbad):
-            i = random.randint(0, len(ll174)-1)
-            x = random.random() - 0.5
-            ll174[i] += x
 
-    return ( a91, ll174 )
+    return ( a91, ll174, good174 )
 
-def osd_test_1():
+def osd_test_1(nbad, depth):
     global ldpc_iters
 
-    nbad = 83
-    iters = 100
+    iters = 500
 
     plains = [ ]
-    codewords = [ ]
+    codewords = [ ] # 174 log-likelihoods with nbad errors
+    goodwords = [ ] # 174 log-likelihoods with no errors
     for iter in range(0, iters):
-        ( p, c )  = osd_test_gen_1(nbad)
+        ( p, c, g )  = osd_test_gen(nbad)
         plains.append(p)
         codewords.append(c)
+        goodwords.append(g)
 
-    # for comparison
-    oli = ldpc_iters
-    # for ldpc_iters in [ oli // 2, oli, oli * 2, oli * 4 ]:
-    for ldpc_iters in [ oli ]:
-        nok = 0
-        t0 = time.time()
+    if True:
+        # check that osd_test_gen() flipped exactly nbad bits.
         for iter in range(0, iters):
-            [ _, d91 ] = ldpc_decode(codewords[iter])
-            ok = numpy.array_equal(plains[iter], d91)
-            if ok:
-                nok += 1
-        t1 = time.time()
-        print("ldpc_decode iters=%d ok=%.2f, %.3f sec" % (ldpc_iters,
-                                                          nok / float(iters),
-                                                          (t1-t0)/iters))
-    ldpc_iters = oli
+            xbad = 0
+            xgood = 0
+            for i in range(0, 174):
+                if ((goodwords[iter][i] < 0 and codewords[iter][i] < 0) or
+                    (goodwords[iter][i] > 0 and codewords[iter][i] > 0)):
+                    xgood += 1
+                    assert abs(codewords[iter][i]) > 4.0
+                else:
+                    assert abs(codewords[iter][i]) < 4.0
+                    xbad += 1
+            # print("xbad=%d xgood=%d" % (xbad, xgood))
+            assert xbad == nbad and (xbad + xgood) == 174
 
-    for order in [ 0, 1, 2 ]:
-        nok = 0
-        t0 = time.time()
-        for iter in range(0, iters):
-            d91 = osd_decode(codewords[iter], order)
-            ok = numpy.array_equal(plains[iter], d91)
-            if ok:
-                nok += 1
-        t1 = time.time()
-        print("n=%d order=%d ok=%.02f, %.3f sec" % (nbad, order, nok/float(iters),
-                                                    (t1-t0)/iters))
+    if False:
+        # for comparison
+        # for ldpc_iters in [ oli // 2, oli, oli * 2, oli * 4 ]:
+        for xldpc_iters in [ 15 ]:
+            nok = 0
+            t0 = time.time()
+            for iter in range(0, iters):
+                [ _, d91 ] = ldpc_decode(numpy.copy(codewords[iter]), xldpc_iters)
+                ok = numpy.array_equal(plains[iter], d91)
+                if ok:
+                    nok += 1
+            t1 = time.time()
+            print("ldpc_decode iters=%d ok=%.2f, %.3f sec" % (xldpc_iters,
+                                                              nok / float(iters),
+                                                              (t1-t0)/iters))
 
-    # ldpc_decode ok=0.03, 0.005 sec
-    # n=70 order=0 ok=0.43, 0.182 sec
-    # n=70 order=1 ok=0.70, 0.610 sec
-    # n=70 order=2 ok=0.72, 11.798 sec
+    nok = 0
+    t0 = time.time()
+    for iter in range(0, iters):
+        [ d91, sc ] = osd_decode(numpy.copy(codewords[iter]), depth)
+        ok = numpy.array_equal(plains[iter], d91)
+        if ok:
+            nok += 1
+    t1 = time.time()
+    print("n=%d depth=%d ok=%.02f, %.3f sec" % (nbad,
+                                                depth,
+                                                nok/float(iters),
+                                                (t1-t0)/iters))
 
-    # ldpc_decode iters=16 ok=0.00, 0.001 sec
-    # ldpc_decode iters=33 ok=0.00, 0.001 sec
-    # ldpc_decode iters=66 ok=0.00, 0.002 sec
-    # ldpc_decode iters=132 ok=0.00, 0.005 sec
-    # n=70 order=0 ok=0.41, 0.039 sec
-    # n=70 order=1 ok=0.70, 0.045 sec
-    # n=70 order=2 ok=0.64, 0.591 sec
-
-    # !!! above tained b/c python_gauss_jordan() was subtly incorrect.
-    # sadly now the whole scheme looks broken, since higher orders do worse.
-    # maybe n=70 is too small?
-    # ldpc_decode iters=33 ok=0.01, 0.001 sec
-    # n=70 order=0 ok=0.71, 0.000 sec
-    # n=70 order=1 ok=0.55, 0.006 sec
-    # n=70 order=2 ok=0.15, 0.549 sec
-    
-    # jan 7 2018
-    # ldpc_decode iters=15 ok=0.00, 0.001 sec
-    # n=87 order=0 ok=0.26, 0.000 sec
-    # n=87 order=1 ok=0.32, 0.005 sec
-    # n=87 order=2 ok=0.33, 0.391 sec
-
-    # nov 30 2018
-    # old FT8
-    # ldpc_decode iters=15 ok=0.00, 0.001 sec
-    # n=87 order=0 ok=0.28, 0.000 sec
-    # n=87 order=1 ok=0.36, 0.003 sec
-    # n=87 order=2 ok=0.37, 0.267 sec
-
-    # dec 5 2018
-    # new FT8
-    # ldpc_decode iters=15 ok=0.00, 0.000 sec
-    # n=83 order=0 ok=0.23, 0.000 sec
-    # n=83 order=1 ok=0.35, 0.003 sec
-    # n=83 order=2 ok=0.34, 0.261 sec
+def osd_test():
+    for nbad in range(78, 84):
+        osd_test_1(nbad, 0)
+        osd_test_1(nbad, 1)
 
 if False:
-    osd_test_1()
+    osd_test()
     sys.exit(1)
 
 if False:
@@ -1234,28 +1349,26 @@ if False:
 # a-priori probability of each of the 174 LDPC codeword
 # bits being one. measured from reconstructed correct
 # codewords, into ft8bits, then python bprob.py.
-# XXX this is old, from the 87-bit version of FT8, not 91.
-old_apriori174 = numpy.array([
-    0.54, 0.45, 0.53, 0.47, 0.46, 0.48, 0.50, 0.49, 0.45, 0.53,
-    0.52, 0.51, 0.53, 0.50, 0.47, 0.49, 0.48, 0.48, 0.45, 0.52,
-    0.57, 0.50, 0.50, 0.49, 0.54, 0.49, 0.53, 0.46, 0.54, 0.53,
-    0.55, 0.54, 0.47, 0.48, 0.47, 0.48, 0.49, 0.48, 0.49, 0.55,
-    0.50, 0.52, 0.50, 0.48, 0.55, 0.52, 0.49, 0.50, 0.50, 0.43,
-    0.46, 0.51, 0.48, 0.56, 0.45, 0.50, 0.44, 0.53, 0.45, 0.55,
-    0.47, 0.52, 0.49, 0.51, 0.53, 0.55, 0.47, 0.50, 0.53, 0.50,
-    0.47, 0.49, 0.51, 0.46, 0.54, 0.50, 0.52, 0.57, 0.51, 0.48,
-    0.53, 0.46, 0.57, 0.52, 0.51, 0.59, 0.53, 0.88, 0.80, 0.68,
-    0.73, 0.64, 0.37, 0.72, 0.47, 0.31, 0.32, 0.28, 0.37, 0.70,
-    0.31, 0.36, 0.35, 0.31, 0.39, 0.66, 0.67, 0.37, 0.31, 0.34,
-    0.63, 0.66, 0.31, 0.32, 0.66, 0.86, 0.72, 0.51, 0.61, 0.48,
-    0.50, 0.55, 0.71, 0.43, 0.41, 0.45, 0.53, 0.57, 0.43, 0.50,
-    0.55, 0.45, 0.60, 0.55, 0.47, 0.50, 0.45, 0.53, 0.47, 0.50,
-    0.47, 0.49, 0.47, 0.02, 0.89, 0.59, 0.86, 0.91, 0.77, 0.66,
-    0.30, 0.68, 0.49, 0.31, 0.61, 0.47, 0.47, 0.40, 0.41, 0.01,
-    0.01, 0.01, 0.48, 0.49, 0.50, 0.52, 0.49, 0.54, 0.48, 0.47,
-    0.46, 0.47, 0.50, 0.01,
+# from ft8-n4
+apriori174 = numpy.array([
+0.47, 0.32, 0.29, 0.37, 0.52, 0.36, 0.40, 0.42, 0.42, 0.53, 0.44,
+0.44, 0.39, 0.46, 0.39, 0.38, 0.42, 0.43, 0.45, 0.51, 0.42, 0.48,
+0.31, 0.45, 0.47, 0.53, 0.59, 0.41, 0.03, 0.50, 0.30, 0.26, 0.40,
+0.65, 0.34, 0.49, 0.46, 0.49, 0.69, 0.40, 0.45, 0.45, 0.60, 0.46,
+0.43, 0.49, 0.56, 0.45, 0.55, 0.51, 0.46, 0.37, 0.55, 0.52, 0.56,
+0.55, 0.50, 0.01, 0.19, 0.70, 0.88, 0.75, 0.75, 0.74, 0.73, 0.18,
+0.71, 0.35, 0.60, 0.58, 0.36, 0.60, 0.38, 0.50, 0.02, 0.01, 0.98,
+0.48, 0.49, 0.54, 0.50, 0.49, 0.53, 0.50, 0.49, 0.49, 0.51, 0.51,
+0.51, 0.47, 0.50, 0.53, 0.51, 0.46, 0.51, 0.51, 0.48, 0.51, 0.52,
+0.50, 0.52, 0.51, 0.50, 0.49, 0.53, 0.52, 0.50, 0.46, 0.47, 0.48,
+0.52, 0.50, 0.49, 0.51, 0.49, 0.49, 0.50, 0.50, 0.50, 0.50, 0.51,
+0.50, 0.49, 0.49, 0.55, 0.49, 0.51, 0.48, 0.55, 0.49, 0.48, 0.50,
+0.51, 0.50, 0.51, 0.50, 0.51, 0.53, 0.49, 0.54, 0.50, 0.48, 0.49,
+0.46, 0.51, 0.51, 0.52, 0.49, 0.51, 0.49, 0.51, 0.50, 0.49, 0.50,
+0.50, 0.47, 0.49, 0.52, 0.49, 0.51, 0.49, 0.48, 0.52, 0.48, 0.49,
+0.47, 0.50, 0.48, 0.50, 0.49, 0.51, 0.51, 0.51, 0.49,
 ])
-apriori174 = numpy.repeat(0.5, 174)
+null_apriori174 = numpy.repeat(0.5, 174)
 
 # take 174 bits just after LDPC decode, un-gray-code,
 # and return resulting 174 bits.
@@ -1288,38 +1401,6 @@ if False:
     assert numpy.array_equal(b174, bb174)
     sys.exit(0)
 
-# turn an array of bits into an integer.
-# for unpacking FT8 messages.
-# MSB, most-significant bit first.
-# works with bignums.
-def un(a):
-    x = long(0)
-    for i, b in enumerate(reversed(a)):
-        x = x + (long(b) << i)
-    return x
-
-# turn an integer into an array of bits.
-# for packing FT8 messages.
-# MSB.
-# works with bignums.
-def bv(x, n):
-    a = numpy.zeros(n, dtype=numpy.int32)
-    for i in range(0, n):
-        a[i] = (x >> (n - i - 1)) & 1
-    return a
-
-if False:
-    # check that un() and bv() can handle numbers
-    # larger than 2^32, by using Python's
-    # bignum ("long") feature.
-    bbb = numpy.ones(71, dtype=numpy.int32)
-    bbb[7] = 0
-    bbb[55] = 0
-    x = un(bbb)
-    ccc = bv(x, len(bbb))
-    assert numpy.array_equal(bbb, ccc)
-    sys.exit(0)
-
 # hash a string call into m bits (10, 12, or 22),
 # for FT8 message types that include a hash of
 # a previously-seen call sign that doesn't fit
@@ -1332,16 +1413,38 @@ def ihashcall(call, m):
     while len(call) < 11:
         call = call + " "
 
-    x = long(0)
-    for c in call[0:11]:
-        j = chars.find(c)
-        x = 38*x + j
+    if sys.version_info.major >= 3:
+        x = 0
+        for c in call[0:11]:
+            j = chars.find(c)
+            x = 38*x + j
+            x = x & ((int(1) << 64) - 1)
+        x = x & ((1 << 64) - 1)
+        x = x * 47055833459
+        x = x & ((1 << 64) - 1)
+        x = x >> (64 - m)
+    else:
+        x = long(0)
+        for c in call[0:11]:
+            j = chars.find(c)
+            x = 38*x + j
+            x = x & ((long(1) << 64) - 1)
         x = x & ((long(1) << 64) - 1)
-    x = x & ((long(1) << 64) - 1)
-    x = x * long(47055833459)
-    x = x & ((long(1) << 64) - 1)
-    x = x >> (64 - m)
+        x = x * long(47055833459)
+        x = x & ((long(1) << 64) - 1)
+        x = x >> (64 - m)
     return x
+
+# ARRL RTTY Round-Up states/provinces
+ru_states = [
+       "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA",
+       "HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
+       "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+       "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC",
+       "SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
+       "NB","NS","QC","ON","MB","SK","AB","BC","NWT","NF",
+       "LB","NU","YT","PEI","DC" ]
+
 
 # information about one decoded signal.
 class Decode:
@@ -1355,13 +1458,32 @@ class Decode:
         self.start = None # sample number
         self.dt = None # dt in seconds
         self.hint = None
-        self.hashcalls = [ ] # calls (as strings) to add to hashes22 and hashes12
+        self.hashcalls = [ ] # calls (as strings) to add to hashes22 and hashes12 and hashes10
+        self.m58 = numpy.zeros([0,8])
 
     def hz(self):
         return numpy.mean(self.hza)
 
-normal_table_stds = 5 # +/- this many std dev
-normal_table_gran = 20 # this many points per std dev
+class Hint:
+    def __init__(self, call1=None, call2=None, hz=None):
+        # call1 and call2 are string call-signs, e.g. "JA2XX".
+        self.i3 = 1
+        self.n3 = None
+        self.call1 = call1 # could be "CQ"
+        self.packed1 = numpy.array([])
+        self.call2 = call2
+        self.packed2 = numpy.array([])
+        self.hz = hz # only look near this Hz
+
+    def __str__(self):
+        if self.hz == None:
+            hz = "-"
+        else:
+            hz = "%.0f" % (self.hz)
+        return "%s.%s.%s" % (self.call1, self.call2, hz)
+
+normal_table_stds = 10 # +/- this many std dev
+normal_table_gran = 40 # this many points per std dev
 normal_table = None
 normal_table_log = None
 
@@ -1471,17 +1593,19 @@ def bin_of(hz):
 # original samples, with required (inter-bucket)
 # frequency, drift, and offset.
 class FFTCache:
-    def __init__(self, samples, jrate, jblock):
+    def __init__(self, samples, jrate, jblock, tstep, fstep):
         self.jrate = jrate
         self.jblock = jblock
         self.samples = samples
+        self.tstep = tstep # was coarse_tstep
+        self.fstep = fstep # was coarse_fstep
 
-        fg = coarse_fstep
+        fg = self.fstep
         if down200 == False and fine_fstep > 0:
             fg *= fine_fstep
         self.bin_granules = int(round(fg))
 
-        bg = coarse_tstep
+        bg = self.tstep
         if down200 == False and fine_tstep > 0:
             bg *= fine_tstep
         self.block_granules = int(round(bg))
@@ -1504,11 +1628,13 @@ class FFTCache:
         # block granule size, in samples.
         gsize = self.jblock / float(self.block_granules)
 
+        hilb = weakutil.pre_freq_shift(self.samples)
+
         for i in range(0, self.bin_granules):
             ss = self.samples
             if i != 0:
                 freq_off = i * (bin_hz / self.bin_granules)
-                ss = weakutil.freq_shift(ss, -freq_off, 1.0/self.jrate)
+                ss = weakutil.freq_shift(ss, -freq_off, 1.0/self.jrate, hilb)
             for gi in range(0, self.block_granules):
                 if False:
                     for bi in range(0, nblocks):
@@ -1622,20 +1748,24 @@ class FT8:
         self.band = "-"
         self.carddesc = None
         self.restrict_hz = None
-        self.hints1 = [ "CQ" ]
-        self.hints2 = [ ]
+        self.hints = [ Hint("CQ") ]
         self.hashes22 = { } # non-standard calls indexed by 22-bit hash
         self.hashes12 = { } # non-standard calls indexed by 12-bit hash
+        self.hashes10 = { } # non-standard calls indexed by 10-bit hash
+        self.forked = False
+        self.ldpc_calls = 0
 
-        self.jrate = 12000 // 2 # sample rate for processing (FFT &c)
-        self.jblock = 1920 // 2 # samples per symbol
+        #self.jrate = 12000 // 2 # sample rate for processing (FFT &c)
+        #self.jblock = 1920 // 2 # samples per symbol
 
         weakutil.init_freq_from_fft(32)
         weakutil.init_freq_from_fft(1920)
         weakutil.init_freq_from_fft(1920 // 2)
         weakutil.init_freq_from_fft(1920 // 4)
+        weakutil.init_freq_from_fft(1920 // 6)
 
-        weakutil.init_fft([1920, 1920 // 2, 1920 // 4, 32])
+        weakutil.fft_sizes([1920, 1920 // 2, 1920 // 4, 1920 // 6, 32])
+        weakutil.init_fft()
 
         # set self.start_time to the UNIX time of the start
         # of the last UTC minute.
@@ -1769,12 +1899,13 @@ class FT8:
         self.audio.read() # get the SDR-IP started
         while True:
             sec0 = self.second(time.time())
-            if sec0 < 13.14:
-                # read big chunks so that the SDR-IP I/Q to USB
-                # conversion works better.
-                time.sleep(13.14 - sec0)
+            howlong = 13.0 - sec0
+            if howlong > 0:
+                # sleep for a long time if we're not near the deadline.
+                howlong = max(howlong, 0.010)
+                time.sleep(howlong)
 
-            [ buf, buf_time ] = self.audio.read()
+            [ buf, buf_time ] = self.audio.raw_read()
 
             # buf_time is the UNIX time of the last sample in buf[].
 
@@ -1782,30 +1913,41 @@ class FT8:
                 # is there a gap in the sample stream?
                 if prev_buf_time != None:
                     dt = buf_time - prev_buf_time
-                    expected = self.cardrate * dt
+                    expected = self.audio.rawrate * dt
                     got = len(buf)
                     if abs(expected-got) > 2:
                         self.junklog(buf_time,
-                                     "gocard expected %d got %d" % (expected, got))
+                          "gocard expected %s got %s, prev_buf_time %s buf_time %s" % (expected,
+                                                                                       got,
+                                                                                       prev_buf_time,
+                                                                                       buf_time))
 
-                mx = numpy.max(numpy.abs(buf))
-                if mx > 30000:
-                    sys.stderr.write("!")
+                # doesn't work for raw_read().
+                #mx = numpy.max(numpy.abs(buf))
+                #if mx > 30000:
+                #    sys.stderr.write("!")
+
                 bufbuf.append(buf)
                 nsamples += len(buf)
                 prev_buf_time = buf_time
             else:
                 # self.audio.read() is non-blocking, so sleep a bit.
-                time.sleep(0.1)
+                time.sleep(0.050)
 
             # an FT8 frame starts on second 0.5, and takes 12.64 seconds.
-            if nsamples >= 13.14*self.cardrate:
+            if nsamples >= 13.14*self.audio.rawrate:
                 sec = self.second(buf_time)
                 if sec >= 13.14:
                     # we have >= 13.14 seconds of samples,
                     # and second of minute is >= 13.14.
 
                     samples = numpy.concatenate(bufbuf)
+
+                    # device-specific I/Q to SSB, rate conversion
+                    # from self.audio.rawrate to self.cardrate.
+                    # do this for the full 15 seconds, which
+                    # improves the conversion quality.
+                    samples = self.audio.postprocess(samples)
 
                     excess = len(samples) - 15*self.cardrate
                     if excess < -1000 or excess > 1000:
@@ -1864,17 +2006,20 @@ class FT8:
         start_time = time.time()
         n = 0
         while True:
+            dec = None
             try:
                 # poll so we won't wait forever if the sub-process
                 # is wedged.
-                some = c.poll(budget + self.extra_budget + 1)
+                howlong = budget + self.extra_budget + 1
+                some = c.poll(howlong)
                 if some == False:
                     break
                 dec = c.recv()
-                self.got_msg(dec)
-                n += 1
             except:
                 break
+
+            self.got_msg(dec)
+            n += 1
 
         dt = time.time() - start_time
         if dt > budget + self.extra_budget + 0.5:
@@ -1888,8 +2033,8 @@ class FT8:
     # samples_time is UNIX time that samples[0] was
     # sampled by the sound card.
     def process(self, samples, samples_time):
-        min_hz = 100 # XXX was 100
-        max_hz = 3000 # XXX was 2500
+        min_hz = real_min_hz
+        max_hz = real_max_hz
 
         if self.restrict_hz != None:
             if self.restrict_hz[0] > min_hz:
@@ -1899,27 +2044,38 @@ class FT8:
 
         global very_first_time
         do_fork = not (profiling or very_first_time)
+        self.forked = do_fork
         very_first_time = False
+
+        save_extra_budget = self.extra_budget
+        if do_fork == False:
+            # avoid taking more than 15 seconds.
+            self.extra_budget = 0
 
         ss = self.second(time.time())
         if self.band != "-" and self.enabled and (ss > 13.8 or ss < 13):
             self.junklog(samples_time, "late start %.1f" % (self.second(time.time())))
         sys.stdout.flush()
 
-        nchildren = 3
         procs = [ ]
         readers = [ ]
+
         for chi in range(0, nchildren):
             # adjust min_hz and max_hz
             hzinc = (max_hz - min_hz) / nchildren
             hz0 = min_hz + chi*hzinc
             hz1 = hz0 + hzinc
             if chi > 0:
-                hz0 -= 60
+                hz0 -= child_overlap
             if chi < nchildren-1:
-                hz1 += 60
+                hz1 += child_overlap
 
             rpipe, spipe = multiprocessing.Pipe(False)
+
+            th = threading.Thread(target=lambda c=rpipe: self.readchild(c, samples_time))
+            th.start()
+            readers.append(th)
+
             if do_fork:
                 px = multiprocessing.Process(target=self.process00,
                                              args=[samples, samples_time, spipe, rpipe,
@@ -1930,10 +2086,7 @@ class FT8:
             else:
                 # either profiling, or warming caches for the very first cycle.
                 self.process00(samples, samples_time, spipe, None, hz0, hz1)
-
-            th = threading.Thread(target=lambda c=rpipe: self.readchild(c, samples_time))
-            th.start()
-            readers.append(th)
+                # process00() closes spipe when it's done.
 
         oband = self.band
 
@@ -1951,6 +2104,8 @@ class FT8:
         if self.band != "-" and self.enabled and self.second(time.time()) > 13:
             self.junklog(samples_time, "late end %.1f" % (self.second(time.time())))
 
+        self.extra_budget = save_extra_budget
+
     def process00(self, samples, samples_time, spipe, rpipe, min_hz, max_hz):
         if rpipe != None:
             rpipe.close()
@@ -1959,7 +2114,6 @@ class FT8:
         spipe.close()
 
     def process0(self, samples, samples_time, thunk, min_hz, max_hz):
-        global budget, ldpc_iters
 
         if self.enabled == False:
             return
@@ -1970,87 +2124,138 @@ class FT8:
 
         t0 = time.time()
 
+        # pre-pack the hints to avoid repeated CPU time later.
+        # generates 28-entry arrays of -1.0 / 1.0, for 1 and 0.
+        snd = FT8Send()
+        two = numpy.array([1.0, -1.0])
+        for hint in self.hints:
+            assert hint.i3 == 1
+            if hint.call1 != None and not ("/" in hint.call1):
+                xx = snd.packcall(hint.call1) # an integer, with 28 interesting bits
+                if xx != -1:
+                    hint.packed1 = two[bv(xx, 28)]
+            if hint.call2 != None and (not "/" in hint.call2):
+                xx = snd.packcall(hint.call2)
+                if xx != -1:
+                    hint.packed2 = two[bv(xx, 28)]
+
         down_hz = 0
-        if top_down and min_hz > 500 and max_hz - min_hz < 1400 and (self.cardrate % 3000) == 0:
+
+        if self.cardrate == 12000:
+            cardblock = 1920
+        elif self.cardrate == 6000:
+            cardblock = 1920 // 2
+        else:
+            assert False
+
+        # use smallest sample rate that divides 12000 evenly
+        # and can represent the Hz range.
+        rates = [ 2000, 3000, 6000, 12000 ]
+        for jrate in rates:
+            if (self.cardrate % jrate) == 0 and jrate > 2 * (max_hz - min_hz + 50):
+                break
+
+        # if down-shifting, center in available b/w.
+        basement_hz = (jrate/2 - ((max_hz+50)-min_hz)) / 2
+        assert basement_hz > 0
+
+        if bottom_slow and max_hz+50 < jrate/2 and (self.cardrate % jrate) == 0:
+            down_factor = self.cardrate // jrate
+            self.jrate = jrate
+            self.jblock = cardblock // down_factor
+            samples = scipy.signal.decimate(samples, down_factor,
+                                            n=decimate_order, zero_phase=True)
+        elif top_down and (max_hz+50+basement_hz) - min_hz < jrate/2 and (self.cardrate % jrate) == 0:
             # high-pass filter
-            cut = min_hz
-            if top_high_order == 0:
-                filter = weakutil.cheby_highpass(min_hz - 12.0, self.cardrate)
-            else:
-                filter = weakutil.butter_highpass(min_hz, self.cardrate,
+            if min_hz < 210:
+                # special case for very low cutoffs.
+                # filter = weakutil.cheby_highpass(min_hz-20, self.cardrate)
+                filter = weakutil.new_cheby_highpass(min_hz - 100,
+                                                     min_hz + 0,
+                                                     self.cardrate,
+                                                     ripple_pass=cheb_ripple_pass,
+                                                     atten_stop=cheb_atten_stop)
+                
+                # filter = weakutil.butter_highpass(min_hz, self.cardrate,
+                #                                   order=11)
+            elif top_high_order > 0:
+                filter = weakutil.butter_highpass(min_hz * high_cutoff, self.cardrate,
                                                   order=top_high_order)
-            samples = scipy.signal.lfilter(filter[0], filter[1], samples)
+            else:
+                # cut = max(min_hz - 12, 0)
+                # filter = weakutil.cheby_highpass(cut, self.cardrate)
+                filter = weakutil.new_cheby_highpass(min_hz - cheb_high_minus,
+                                                     min_hz + cheb_high_plus,
+                                                     self.cardrate,
+                                                     ripple_pass=cheb_ripple_pass,
+                                                     atten_stop=cheb_atten_stop)
+
+            samples = scipy.signal.filtfilt(filter[0], filter[1], samples)
 
             # shift down
-            down_hz = min_hz - 50
+            down_hz = min_hz - basement_hz
             samples = weakutil.freq_shift(samples, -down_hz, 1.0 / self.cardrate)
             max_hz -= down_hz
             min_hz -= down_hz
 
-            self.jrate = 12000 // 4
-            self.jblock = 1920 // 4
-            down_factor = self.cardrate // self.jrate
-            assert self.jrate * down_factor == self.cardrate
+            down_factor = self.cardrate // jrate
+            self.jrate = jrate
+            self.jblock = cardblock // down_factor
 
-            if top_low_order == 0:
-                filter = weakutil.cheby_lowpass(0.45 * self.jrate, self.cardrate)
-            else:
-                filter = weakutil.butter_lowpass(0.45 * self.jrate,
-                                                 self.cardrate,
-                                                 order=top_low_order)
-            samples = scipy.signal.lfilter(filter[0], filter[1], samples)
-
-            samples = samples[::down_factor]
-
-        elif bottom_slow and max_hz < 1400 and (self.cardrate % 3000) == 0:
-            self.jrate = 12000 // 4
-            self.jblock = 1920 // 4
-            down_factor = self.cardrate // self.jrate
-            assert self.jrate * down_factor == self.cardrate
-
-            if bottom_low_order == 0:
-                filter = weakutil.cheby_lowpass(0.45 * self.jrate, self.cardrate)
-            else:
-                filter = weakutil.butter_lowpass(0.45 * self.jrate,
-                                                 self.cardrate,
-                                                 order=bottom_low_order)
-            samples = scipy.signal.lfilter(filter[0], filter[1], samples)
-
-            samples = samples[::down_factor]
-
+            samples = scipy.signal.decimate(samples, down_factor,
+                                            n=decimate_order, zero_phase=True)
         elif self.cardrate == 12000:
-            self.rate = 12000 // 2
+            if nchildren > 1:
+                sys.stderr.write("slow path: min_hz %d max_hz %d diff %d\n" % (min_hz,
+                                                                               max_hz,
+                                                                               max_hz - min_hz))
+            self.jrate = 12000 // 2
             self.jblock = 1920 // 2
+            down_factor = 2
 
-            filter = weakutil.butter_lowpass(0.45 * self.jrate,
-                                             self.cardrate,
-                                             order=7)
-            # filter = weakutil.cheby_lowpass(0.45 * self.jrate, self.cardrate)
-            samples = scipy.signal.lfilter(filter[0], filter[1], samples)
-            samples = samples[::2]
+            samples = scipy.signal.decimate(samples, down_factor,
+                                            n=decimate_order, zero_phase=True)
         elif self.cardrate != self.jrate:
-            print("cannot handle cardrate %d" % (self.cardrate))
+            sys.stderr.write("cannot handle cardrate %d; min_hz %d max_hz %d\n" % (self.cardrate, min_hz, max_hz))
             assert False
 
         # nominal signal start time is half a second into samples[].
         # prepend and append padding.
         # result: end_pad samples, then start of on-time signals.
         # pad with plausible signal levels.
-        start_pad = int(2.5 * self.jrate)
+        start_pad = int(3.0 * self.jrate)
         end_pad = int(2.5 * self.jrate)
-        sm = numpy.mean(samples[self.jrate:self.jrate*2])
-        sd = numpy.std(samples[self.jrate:self.jrate*2])
-        sm /= 10 # XXX
-        sd /= 10 # XXX
-        sd /= 4.0
-        # sm /= 4.0
-        # sd /= 4.0
+        sm = numpy.mean(samples[self.jrate:self.jrate*4])
+        sd = numpy.std(samples[self.jrate:self.jrate*4])
+        sd *= padfactor
         nbefore = start_pad - self.jrate // 2
         samples = numpy.append(numpy.random.normal(sm, sd, nbefore), samples)
 
         wanted = 79*self.jblock + start_pad + end_pad - len(samples)
         if wanted > 0:
             samples = numpy.append(samples, numpy.random.normal(sm, sd, wanted))
+
+        bud = budget - (time.time() - t0)
+        extra_bud = self.extra_budget
+
+        self.process0a(samples, thunk, min_hz, max_hz, start_pad,
+                       bud, extra_bud, down_hz, samples_minute)
+
+        if False:
+            hzd = 0.5
+
+            samples1 = weakutil.freq_shift_ramp(samples, [-hzd, hzd], 1.0 / self.jrate)
+            self.process0a(samples1, thunk, min_hz, max_hz, start_pad,
+                           bud, extra_bud, down_hz, samples_minute)
+            
+            samples1 = weakutil.freq_shift_ramp(samples, [hzd, -hzd], 1.0 / self.jrate)
+            self.process0a(samples1, thunk, min_hz, max_hz, start_pad,
+                           bud, extra_bud, down_hz, samples_minute)
+
+    def process0a(self, samples, thunk, min_hz, max_hz, start_pad,
+                  bud, extra_bud, down_hz, samples_minute):
+
+        t0 = time.time()
 
         bin_hz = self.jrate / float(self.jblock)
 
@@ -2059,10 +2264,6 @@ class FT8:
         # later, captured by start_adj.
         adjusted_start = start_pad + int(self.jrate * start_adj)
 
-        # find a clear spot, to help prevent our future replies
-        # from interfering with other traffic.
-        clear_hz = self.find_clear(samples[adjusted_start:], min_hz, max_hz)
-
         # suppress duplicate message decodes,
         # indexed by message text.
         already_msg = { }
@@ -2070,21 +2271,27 @@ class FT8:
         npasses = subpasses + 1
         for pass_ in range(0, npasses):
             used = time.time() - t0
-            if used >= budget + self.extra_budget:
+            if used >= bud + extra_bud:
                 break
 
             pass_got_some = False # decoded anything in this pass?
 
             if pass_ == 0:
                 # non-subtracted
-                xf = FFTCache(samples, self.jrate, self.jblock)
+                input_samples = numpy.copy(samples)
+                xf = FFTCache(samples, self.jrate, self.jblock,
+                              pass0_tstep, pass0_fstep)
                 ssamples = numpy.copy(samples) # for subtraction
-                ranking = self.coarse(xf, adjusted_start, min_hz, max_hz)
+                ranking = self.coarse(xf, adjusted_start, min_hz, max_hz,
+                                      pass0_tminus, pass0_tplus)
             elif pass_ > 0:
                 # revisit coarse list, with subtracted ssamples
-                xf = FFTCache(ssamples, self.jrate, self.jblock)
+                input_samples = numpy.copy(ssamples)
+                xf = FFTCache(ssamples, self.jrate, self.jblock,
+                              passN_tstep, passN_fstep)
                 ssamples = numpy.copy(ssamples)
-                ranking = self.coarse(xf, adjusted_start, min_hz, max_hz)
+                ranking = self.coarse(xf, adjusted_start, min_hz, max_hz,
+                                      passN_tminus, passN_tplus)
 
             # suppress duplicate attempts to look at
             # the same hz and offset. duplicates can arise
@@ -2099,17 +2306,30 @@ class FT8:
 
             for rr in ranking:
                 used = time.time() - t0
-                if used >= budget + self.extra_budget:
+                if used >= bud + extra_bud:
                     break
+                
+                # when to switch to next pass?
+                deadline = None
+                pass0bud = pass0_frac * (bud / float(npasses))
+                pass0bud = min(bud, pass0bud)
+                if pass_ == 0:
+                    deadline = pass0bud
+                else:
+                    remainder = bud - pass0bud
+                    deadline = pass0bud + pass_ * (remainder / (npasses - 1))
 
-                left = budget - used
-                if pass_+1 < npasses and pass_got_some and used > budget * ((pass_+1.0) / npasses):
+                #if pass_+1 < npasses and pass_got_some and used > bud * ((pass_+1.0) / npasses):
+                if pass_+1 < npasses and (pass_==0 or pass_got_some) and used > deadline:
                     # switch to [next pass of] subtracted ssamples
                     break
 
                 # rr is [ hz, offset, strength ]
                 hz = rr[0]
                 offset = rr[1]
+
+                #if (hz+down_hz) > 875 and (hz+down_hz) < 886:
+                #    print((hz+down_hz), rr)
 
                 # index into already_coarse.
                 acoffset = int(round(offset / float(self.jblock)))
@@ -2118,7 +2338,7 @@ class FT8:
                 if ackey in already_coarse:
                     continue
 
-                dec = self.process1(xf, hz, offset, already_fine, pass_)
+                dec = self.process1(xf, hz, offset, already_fine, pass_, down_hz, input_samples)
 
                 if dec != None:
                     for ooo in range(acoffset-already_o, acoffset+already_o+1):
@@ -2128,29 +2348,35 @@ class FT8:
                     pass_got_some = True
                     dec.dt = ((dec.start - start_pad) / float(self.jrate))
                     dec.minute = samples_minute
-                    dec.clear_hz = clear_hz
                     dec.hza[0] += down_hz
                     dec.hza[1] += down_hz
-                    dec.clear_hz += down_hz
                     if do_subtract == 3 and pass_+1 < npasses:
-                        ssamples = self.subtract_v5(ssamples, dec, dec.hz() - down_hz)
+                        ssamples = self.subtract_v6(ssamples, dec, dec.hz() - down_hz)
                     if not dec.msg in already_msg:
                         shz = dec.hz() - down_hz
                         if pass_+1 < npasses and do_subtract in [ 1, 2, 4 ]:
-                            shz = self.known_best_freq(ssamples, dec, shz, xf) # improved hz for subtraction
+                            if adjust_hz_for_sub:
+                                # improved hz for subtraction
+                                [ _, _, m ] = xf.get(shz, dec.start)
+                                shz = self.known_best_freq(ssamples, dec.symbols, dec.start, shz, m)
+                            if adjust_off_for_sub:
+                                err = self.known_best_off(ssamples, dec.symbols, dec.start, shz)
+                                err = int(err * self.jblock)
+                                if dec.start+err >= 0 and dec.start+err+79*self.jblock <= len(ssamples):
+                                    dec.start += err
                         if do_subtract == 1 and pass_+1 < npasses:
-                            ssamples = self.subtract_v5(ssamples, dec, shz)
+                            ssamples = self.subtract_v6(ssamples, dec, shz)
                         if do_subtract == 2 and pass_+1 < npasses:
                             # multiple times, vary the hz
-                            ssamples = self.subtract_v5(ssamples, dec, shz)
-                            ssamples = self.subtract_v5(ssamples, dec, shz - subgap)
-                            ssamples = self.subtract_v5(ssamples, dec, shz + subgap)
+                            ssamples = self.subtract_v6(ssamples, dec, shz)
+                            ssamples = self.subtract_v6(ssamples, dec, shz - subgap)
+                            ssamples = self.subtract_v6(ssamples, dec, shz + subgap)
                         if do_subtract == 4 and pass_+1 < npasses:
-                            ssamples = self.subtract_v5(ssamples, dec, shz)
-                            ssamples = self.subtract_v5(ssamples, dec, dec.hz() - down_hz)
+                            ssamples = self.subtract_v6(ssamples, dec, shz)
+                            ssamples = self.subtract_v6(ssamples, dec, dec.hz() - down_hz)
                         already_msg[dec.msg] = True
                         if self.verbose:
-                            print("P%d %s %4.1f %6.2f %5d %.2f %.0f %s" % (pass_,
+                            print("P%d %s %4.1f %6.1f %5d %.2f %.0f %s" % (pass_,
                                                                           self.band,
                                                                           self.second(dec.decode_time),
                                                                           dec.hz(),
@@ -2161,14 +2387,15 @@ class FT8:
                             sys.stdout.flush()
                         thunk(dec)
 
+
     # down-convert to 200 samples/second,
     # or 32 samples per symbol. like wsjt-x.
-    # moves hz at 25 hz, or bin=4.
+    # moves hz to 25 hz, or bin=4.
     # hz must be on a coarse boundary.
     def downconvert200(self, xf, hz):
         bin_hz = self.jrate / float(self.jblock)
 
-        gran = bin_hz / coarse_fstep
+        gran = bin_hz / xf.fstep
         assert int(round(hz / gran)) * gran == hz
 
         [ hzoff, _, m ] = xf.getall_complex(hz, 0)
@@ -2176,15 +2403,20 @@ class FT8:
         # hz is centered on m[...][bin].
         bin = int(round((hz - hzoff) / bin_hz))
 
+        assert bin >= 4
+
+        if bin-4+17 > m.shape[1]:
+            return numpy.array([])
+
         # move bin to bin=4 == 25 Hz.
         # need 17 bins for inverse FFT to yield 32 samples/symbol.
-        assert bin >= 4
         m1 = m[:,bin-4:bin-4+17]
 
         # inverse FFTs, to generate sample rate of 200/second.
         slow = numpy.zeros(32*m1.shape[0])
         for i in range(0, m1.shape[0]):
-            z = numpy.fft.irfft(m1[i,:])
+            zz = m1[i,:]
+            z = weakutil.irfft(zz)
             slow[i*32:(i+1)*32] = z
 
         return slow
@@ -2192,10 +2424,9 @@ class FT8:
     # return a 79x8 complex mini-FFT.
     # s is 200 samples/second, 32 samples per symbol.
     def extract200(self, s, off, hz):
-        bin = int(hz / 6.25)
+        bin = int(round(hz / 6.25))
         assert bin >= 3 and bin <= 5
         hzshift = hz - 6.25 * bin
-        assert hzshift >= 0.0
         if hzshift != 0.0:
             s = weakutil.freq_shift(s, -hzshift, 1.0/200)
 
@@ -2210,14 +2441,14 @@ class FT8:
 
         return m
 
-    def process1(self, xf, hz, offset, already_hzo, pass_):
+    def process1(self, xf, hz, offset, already_hzo, pass_, down_hz, samples):
         if down200:
-            return self.new_process1(xf, hz, offset, already_hzo, pass_)
+            return self.process1_v3(samples, xf, hz, offset, already_hzo, pass_, down_hz)
         else:
-            return self.old_process1(xf, hz, offset, already_hzo, pass_)
+            return self.process1_v1(xf, hz, offset, already_hzo, pass_, down_hz)
 
     # hz and offset are from coarse search.
-    def old_process1(self, xf, hz, offset, already_hzo, pass_):
+    def process1_v1(self, xf, hz, offset, already_hzo, pass_, down_hz):
         bin_hz = self.jrate / float(self.jblock)
 
         hz0 = hz
@@ -2226,10 +2457,10 @@ class FT8:
         if offset < 0 or (offset+79*self.jblock) > xf.len():
             return None
 
-        offstep = self.jblock // coarse_tstep
+        offstep = self.jblock // xf.tstep
         if fine_tstep > 1:
             offstep //= fine_tstep
-        hzstep = bin_hz / coarse_fstep
+        hzstep = bin_hz / xf.fstep
         if fine_fstep > 1:
             hzstep /= fine_fstep
 
@@ -2245,12 +2476,9 @@ class FT8:
         for [ offset, _ ] in offs:
             if fine_fstep > 1:
                 # improve the starting hz.
-                if True:
-                    hzoff0 = hz0 - (fine_fstep // 2) * hzstep
-                    hzoff1 = hz0 + (fine_fstep // 2) * hzstep
-                    [ hz, strength ] = self.best_freq(xf, offset, hzoff0, hzoff1, hzstep)
-                else:
-                    hz = self.alternate_best_freq(xf, hz, offset)
+                hzoff0 = hz0 - (fine_fstep // 2) * hzstep
+                hzoff1 = hz0 + (fine_fstep // 2) * hzstep
+                [ hz, strength ] = self.best_freq(xf, offset, hzoff0, hzoff1, hzstep)
 
             # the fine_ loops overlap at the edges. try each point just once.
             khz = int(round(hz))
@@ -2263,7 +2491,7 @@ class FT8:
             [ _, _, ss ] = xf.get_complex(hz, offset)
             # ss has 79 8-bucket mini-FFTs.
 
-            dec = self.process2(ss[0:79], hz, offset, pass_)
+            dec = self.process2(ss[0:79], hz, offset, pass_, down_hz)
                 
             if dec != None:
                 return dec
@@ -2271,7 +2499,8 @@ class FT8:
         return None
 
     # hz and offset are from coarse search.
-    def new_process1(self, xf, hz1, offset1, already_fine, pass_):
+    # for down200
+    def process1_v3(self, samples, xf, hz1, offset1, already_fine, pass_, down_hz):
         bin_hz = self.jrate / float(self.jblock)
 
         if offset1 < 0 or (offset1+79*self.jblock) > xf.len():
@@ -2279,107 +2508,84 @@ class FT8:
         
         # 200 samples/second, 32 samples/symbol,
         # hz moved to bin 4 (25 Hz).
-        slow = self.downconvert200(xf, hz1)
+
+        if True:
+            slow = self.downconvert200(xf, hz1)
+            if len(slow) == 0:
+                return None
+        else:
+            filter = weakutil.butter_bandpass(hz1 - guard200, hz1 + 50 + guard200, self.jrate, order200)
+
+            # samples = scipy.signal.lfilter(filter[0], filter[1], samples)
+            # filtfilt() doesn't change the offset (phase) of the signal,
+            # so it works better here than lfilter(), though it is half
+            # as fast (and has twice the effective order).
+            samples = scipy.signal.filtfilt(filter[0], filter[1], samples)
+
+            assert hz1 >= 25
+            samples = weakutil.freq_shift(samples, -(hz1 - 25), 1.0 / self.jrate)
+            slow = samples[::(self.jrate // 200)]
+
         offset = int((offset1 / float(self.jrate)) * 200)
         hz = 25.0
 
-        # fine-tune the offset.
-        bestoff = None
-        beststrength = None
-        gran = 32 // coarse_tstep
-        if fine_tstep >= 1:
-            gran = gran // fine_tstep
-        if gran < 1:
-            gran = 1
-        for off in range(offset - (32/coarse_tstep),
-                         offset + (32/coarse_tstep) + 1,
-                         gran):
-            if off < 0 or len(slow) - off < 32*79:
-                continue
-            m = self.extract200(slow, off, hz)
-            m = abs(m)
-            s = self.strength(m)
-            if bestoff == None or s > beststrength:
-                bestoff = off
-                beststrength = s
-        offset = bestoff
+        if offset < 0 or offset + 79*32 > len(slow):
+            return None
 
-        # fine-tune hz
-        besthz = None
-        beststrength = None
-        bestm = None
-        for hzx in numpy.arange(hz - (6.25 / coarse_fstep),
-                                hz + (6.25 / coarse_fstep) + 0.0001,
-                                6.25 / (coarse_fstep * fine_fstep)):
-            m = self.extract200(slow, offset, hzx)
-            m = abs(m)
-            s = self.strength(m)
-            if besthz == None or s > beststrength:
-                besthz = hzx
-                beststrength = s
-                bestm = m
-        hz = besthz
-        m = bestm
+        m = self.extract200(slow, offset, hz)
+        m = abs(m)
+
+        symbols = numpy.argmax(m, 1)
+        costas = numpy.array(costas_symbols, dtype=numpy.int32)
+        symbols[0:0+7] = costas
+        symbols[36:36+7] = costas
+        symbols[72:72+7] = costas
+
+        # hz = self.known_best_freq(slow, symbols, offset, hz, m, 200, 32)
+        # err = self.known_best_off(slow, symbols, offset, hz, 200, 32)
+        hz = self.blah_freq(slow, symbols, offset, hz, m, 200, 32, pass_)
+        err = self.blah_off(slow, symbols, offset, hz, 200, 32, pass_)
+        err = int(err * 32)
+        offset += err
+
+        offset = max(offset, 0)
+        offset = min(offset, len(slow) - 79*32)
+
+        m = self.extract200(slow, offset, hz)
+        m = abs(m)
 
         # reference hz/offset back to self.jrate world.
         offset2 = int((offset / 200.0) * self.jrate)
         hz2 = hz1 + (hz - 25.0)
 
-        # the fine loops overlap at the edges. try each point just once.
-        # XXX move this into loops above?
-        khz = int(round(hz2))
-        koff = offset2 // (self.jblock // (coarse_tstep * fine_tstep))
-        key = "%d-%d" % (khz, koff)
-        if key in already_fine:
-            return None
-        already_fine[key] = True
-
-        dec = self.process2(m[0:79], hz2, offset2, pass_)
+        dec = self.process2(m[0:79], hz2, offset2, pass_, down_hz)
 
         if dec != None:
             return dec
 
         return None
 
-    # find a clear hz in case we want to reply.
-    # samples[] starts at nominal start time (0.5 seconds).
-    def find_clear(self, samples, min_hz, max_hz):
-        bin_hz = self.jrate / float(self.jblock)
-        occupied1 = numpy.zeros((self.jblock // 2) + 1)
-        for sec in [ 2, 4, 6, 7, 9, 11 ]:
-            i1 = int(sec*self.jrate)
-            i2 = i1 + self.jblock
-            occupied1 += weakutil.arfft(samples[i1:i2])
-        occupied2 = numpy.copy(occupied1)
-        for bi in range(1, 8):
-            occupied2[0:-bi] += occupied1[bi:]
-        b1 = int(min_hz / bin_hz)
-        b2 = int(max_hz / bin_hz)
-        clear_bin = numpy.argmin(occupied2[b1:b2]) + b1
-        clear_hz = clear_bin * bin_hz
-        return clear_hz
-
     # use freq_from_fft to find offset from center of bin.
     # this version knows the transmitted signal!
     # for subtraction.
-    def known_best_freq(self, samples, dec, hz, xf):
-        bin_hz = self.jrate / float(self.jblock)
-        bin = bin_of(hz)
+    def known_best_freq(self, samples, symbols, start, hz, m, jrate=None, jblock=None):
+        if jrate == None:
+            jrate = self.jrate
+        if jblock == None:
+            jblock = self.jblock
 
-        snd = FT8Send()
-        symbols = snd.make_symbols(dec.bits77)
+        bin_hz = jrate / float(jblock)
+        bin = bin_of(hz)
 
         hz_sum = 0.0
         weight_sum = 0.0
         
-        # only used for weighting
-        [ _, _, m ] = xf.get(hz, dec.start)
-
         for i in range(0, len(symbols)):
-            ind = dec.start + i*(self.jblock)
-            block = samples[ind:ind+self.jblock]
+            ind = start + i*(jblock)
+            block = samples[ind:ind+jblock]
             bin1 = bin + symbols[i]
-            bin2 = weakutil.bin_from_fft(block, self.jrate, bin1)
+            # bin_from_fft() returns a fractional bin
+            bin2 = weakutil.bin_from_fft(block, jrate, bin1)
             if bin2 == None:
                 continue
             nhz = bin2 * bin_hz
@@ -2393,6 +2599,154 @@ class FT8:
             return hz
         return hz_sum / weight_sum
 
+    def blah_freq(self, samples, symbols, start, hz, m, jrate, jblock, pass_):
+
+        bin_hz = jrate / float(jblock)
+        bin = bin_of(hz)
+
+        hz_sum = 0.0
+        weight_sum = 0.0
+        
+        for i in [ 0, 1, 2, 3, 4, 5, 6,
+                   36, 37, 38, 39, 40, 41, 42,
+                   72, 73, 74, 75, 76, 77, 78 ]:
+            ind = start + i*(jblock)
+            block = samples[ind:ind+jblock]
+            bin1 = bin + symbols[i]
+            # bin_from_fft() returns a fractional bin
+            bin2 = weakutil.bin_from_fft(block, jrate, bin1)
+            if bin2 == None:
+                continue
+            nhz = bin2 * bin_hz
+            nhz -= symbols[i] * bin_hz # reference to base tone
+            if abs(nhz - hz) < bin_hz*0.5:
+                #weight = 1
+                weight = m[i][symbols[i]] / numpy.min(m[i][0:8])
+                hz_sum += nhz * weight
+                weight_sum += weight
+        if weight_sum == 0:
+            return hz
+        return hz_sum / weight_sum
+
+    # try to find offset error in time domain (not fft).
+    # returns time offset error in fractions of a symbol time.
+    # return value should be added to offset.
+    def known_best_off(self, samples, symbols, start, hz, jrate=None, jblock=None):
+        if jrate == None:
+            jrate = self.jrate
+        if jblock == None:
+            jblock = self.jblock
+
+        bin_hz = jrate / float(jblock)
+
+        # pre-compute the eight tones. the phase won't be
+        # right, so the final results will be off by
+        # around half a cycle, which is too bad, though
+        # averaging over many symbols may help.
+        tones = [ ]
+        for ti in range(0, 8):
+            # random phase
+            ph = random.random() * math.pi
+            tone = weakutil.costone(jrate, hz + bin_hz*ti, jblock, ph)
+            tones.append(tone)
+
+        gran = min(pass0_tstep, passN_tstep)
+        if down200 == False and fine_tstep > 0:
+            gran *= fine_tstep
+        max_err = int(round(jblock / float(gran)))
+
+        sum = 0.0
+        n = 0
+
+        i = 0
+        while i < len(symbols):
+            ix = i + 1
+            while ix < len(symbols) and symbols[ix] == symbols[i]:
+                ix += 1
+            nsyms = ix - i
+
+            i0 = start + i*jblock
+            i1 = i0 + nsyms*jblock
+
+            if i0 >= max_err and i1+max_err <= len(samples):
+                if nsyms > 1:
+                    tone = numpy.tile(tones[symbols[i]], nsyms)
+                else:
+                    tone = tones[symbols[i]]
+
+                block = samples[i0-max_err:i1+max_err]
+                cc = numpy.correlate(block, tone)
+                mm = numpy.argmax(cc)
+
+                thisoff = mm - max_err
+                weight = math.sqrt(max(0, cc[mm])) * nsyms
+                sum += thisoff * weight
+                n += weight
+
+            i = ix
+
+        err = sum / n
+        err = err / float(jblock)
+        return err
+
+    def blah_off(self, samples, symbols, start, hz, jrate, jblock, pass_):
+
+        bin_hz = jrate / float(jblock)
+
+        # pre-compute the eight tones. the phase won't be
+        # right, so the final results will be off by
+        # around half a cycle, which is too bad, though
+        # averaging over many symbols may help.
+        tones = [ ]
+        for ti in range(0, 8):
+            # random phase
+            ph = random.random() * math.pi
+            tone = weakutil.costone(jrate, hz + bin_hz*ti, jblock, ph)
+            tones.append(tone)
+
+        if pass_ == 0:
+            gran = pass0_tstep
+        else:
+            gran = passN_tstep
+        if down200 == False and fine_tstep > 0:
+            gran *= fine_tstep
+        max_err = int(round(jblock / float(gran)))
+
+        sum = 0.0
+        n = 0
+
+        for i in [ 0, 1, 2, 3, 4, 5, 6,
+                   36, 37, 38, 39, 40, 41, 42,
+                   72, 73, 74, 75, 76, 77, 78 ]:
+            ix = i + 1
+            while ix < len(symbols) and symbols[ix] == symbols[i]:
+                ix += 1
+            nsyms = ix - i
+
+            i0 = start + i*jblock
+            i1 = i0 + nsyms*jblock
+
+            if i0 >= max_err and i1+max_err <= len(samples):
+                if nsyms > 1:
+                    tone = numpy.tile(tones[symbols[i]], nsyms)
+                else:
+                    tone = tones[symbols[i]]
+
+                block = samples[i0-max_err:i1+max_err]
+                cc = numpy.correlate(block, tone)
+                mm = numpy.argmax(cc)
+
+                thisoff = mm - max_err
+                weight = math.sqrt(max(0, cc[mm])) * nsyms
+                sum += thisoff * weight
+                n += weight
+
+            #i = ix
+
+        err = sum / n
+        err = err / float(jblock)
+        return err
+
     # subtract a decoded signal (hz/start/twelve) from the samples,
     # so that we can then decode weaker signals underneath it.
     # i.e. interference cancellation.
@@ -2402,8 +2756,7 @@ class FT8:
         bin_hz = self.jrate / float(self.jblock)
 
         # the 79 symbols, each 0..8
-        snd = FT8Send()
-        symbols = snd.make_symbols(dec.bits77)
+        symbols = dec.symbols
 
         samples = numpy.copy(osamples)
 
@@ -2462,13 +2815,10 @@ class FT8:
 
             i += nb
 
-        ai = 0
-        while ai < len(amps):
+        for ai in range(0, len(amps)):
             a = amps[ai]
             off = offs[ai]
-            tone = tones[ai]
-            samples[off:off+len(tone)] -= tone * a
-            ai += 1
+            samples[off:off+len(tones[ai])] -= tones[ai] * a
 
         if dec.start < 0:
             nsamples = samples[(-dec.start):]
@@ -2477,88 +2827,210 @@ class FT8:
 
         return nsamples
 
-    # estimate the probability that m79 contains an FT8 signal.
-    # looks only at Costas blocks.
-    # looks at how far Costas signal is from mean/std of noise.
-    # m79 is a mini-fft.
-    # hmm, this kind of probability might be useful for comparing
-    # two different signals, but it is not so useful in making
-    # fine adjustments in best_offset()/best_freq() since small
-    # changes to the noise variance can have a big effect.
-    # i.e. it's a bit unstable.
-    # (not used, never was useful)
-    def estimate_probability(self, m79):
-        # mask in shape of Costas array with False at
-        # Costas locations.
-        mask0 = numpy.ones((7,8), dtype=bool)
-        mask1 = numpy.zeros((7,8), dtype=bool)
-        for i in range(0, 7):
-            mask0[i,costas_symbols[i]] = False
-            mask1[i,costas_symbols[i]] = True
+    # subtract a decoded signal (hz/start/twelve) from the samples,
+    # so that we can then decode weaker signals underneath it.
+    # i.e. interference cancellation.
+    def subtract_v6(self, osamples, dec, hz0):
+        bin_hz = self.jrate / float(self.jblock)
 
-        # calculate probability that this is really a signal,
-        # as the sum of the per-bit log(P(signal)).
-        log_p_sig = 0.0
-            
-        for ci in [0, 36, 72]:
-            # the costas block
-            b = m79[ci:ci+7]
+        # the 79 symbols, each 0..8
+        symbols = dec.symbols
 
-            # the seven costas strengths.
-            c = b[mask1,...]
+        bin0 = int(hz0 / bin_hz)
+        down_hz = hz0 - (bin0 * bin_hz)
+        downsamples = weakutil.freq_shift(osamples, -down_hz, 1.0/self.jrate)
 
-            # omit the expected costas signal, leaving
-            # a one-dimensional vector of 49 elements
-            b = b[mask0,...]
-            
-            mean = numpy.mean(b)
-            std = numpy.std(b)
+        if dec.start < 0:
+            samples = numpy.append([0.0]*(-dec.start), downsamples)
+        else:
+            samples = downsamples[dec.start:]
 
-            lps = scipy.stats.norm.logcdf((c - mean) / std)
-            #lps = vproblt_log(c, mean, std)
-            log_p_sig = log_p_sig + numpy.sum(lps)
+        ffts = [ ]
+        ampls = numpy.zeros(len(symbols))
+        i = 0
+        while i < len(symbols):
+            # start+end of symbol in samples[]
+            i0 = i * self.jblock
+            i1 = i0 + self.jblock
+            a = weakutil.rfft(samples[i0:i1])
+            ffts.append(a)
+            ampls[i] = abs(a[bin0+symbols[i]])
+            i += 1
 
+        # XXX ampls[] includes N as well as S, but nothing
+        # obvious works well to fix that.
 
-        return log_p_sig
+        medamps = scipy.signal.medfilt(ampls, kernel_size=((sub_amp_win*2)+1))
 
-    # how strong are the costas signals?
-    # suitable for best_offset()/best_strength(),
-    # where we're just comparing a signal to itself,
-    # so clever treatment of noise isn't needed.
-    def strength(self, m79):
+        i = 0
+        while i < len(symbols):
+            # start+end of symbol in samples[]
+            i0 = i * self.jblock
+            i1 = i0 + self.jblock
+
+            ampl = medamps[i]
+
+            a = ffts[i]
+            si = bin0 + symbols[i]
+
+            aa = abs(a[si])
+            if ampl > aa:
+                ampl = aa
+
+            if aa > 0.0:
+                a[si] /= aa
+                a[si] *= (aa - ampl)
+
+            samples[i0:i1] = weakutil.irfft(a)
+
+            i += 1
+
+        if dec.start < 0:
+            nsamples = samples[(-dec.start):]
+        else:
+            nsamples = numpy.append(downsamples[0:dec.start], samples)
+
+        nsamples = weakutil.freq_shift(nsamples, down_hz, 1.0/self.jrate)
+
+        return nsamples
+
+    # don't freq_shift(); instead, subtract FFT of
+    # the tone, which is smeared over many FFT buckets.
+    # does not work as well as subtract_v6.
+    def subtract_v7(self, osamples, dec, hz0):
+        bin_hz = self.jrate / float(self.jblock)
+
+        # the 79 symbols, each 0..8
+        symbols = dec.symbols
+
+        if dec.start < 0:
+            samples = numpy.append([0.0]*(-dec.start), osamples)
+        else:
+            samples = numpy.copy(osamples[dec.start:])
+
+        # FFT of a tone.
+        tone = weakutil.costone(self.jrate, hz0, self.jblock, 0.0)
+        tonefft = weakutil.rfft(tone)
+        bin0 = numpy.argmax(abs(tonefft))
+
+        ffts = [ ]
+        ampls = numpy.zeros(len(symbols))
+        for i in range(0, len(symbols)):
+            # start+end of symbol in samples[]
+            i0 = i * self.jblock
+            i1 = i0 + self.jblock
+            a = weakutil.rfft(samples[i0:i1])
+            ffts.append(a)
+            ampls[i] = abs(a[bin0+symbols[i]])
+
+        medamps = scipy.signal.medfilt(ampls, kernel_size=((sub_amp_win*2)+1))
+
+        for i in range(0, len(symbols)):
+            # start+end of symbol in samples[]
+            i0 = i * self.jblock
+            i1 = i0 + self.jblock
+
+            a = ffts[i]
+            si = bin0 + symbols[i]
+
+            # FFT is linear, so subtracting in time domain is the
+            # same as subtracting in frequency domain.
+            # complex multiplication adds angles and multiplies magnitudes.
+            # complex division subtracts angles and divides magnitudes.
+
+            # reference tone is wrong phase; what's the difference?
+            # i.e. need to multiply reference tone by phasediff to yield signal.
+            phasediff = a[si] / tonefft[bin0]
+            phasediff /= abs(phasediff)
+
+            # reference tone is wrong amplitude; what's the ratio?
+            # ampdiff = abs(a[si]) / abs(tonefft[bin0])
+            ampdiff = medamps[i] / abs(tonefft[bin0])
+
+            #diff = numpy.copy(tonefft)
+            #diff *= phasediff
+            #diff *= ampdiff
+            diff = tonefft * phasediff * ampdiff
+
+            a[symbols[i]:] -= diff[0:len(diff)-symbols[i]]
+
+            samples[i0:i1] = weakutil.irfft(a)
+
+        if dec.start < 0:
+            nsamples = samples[(-dec.start):]
+        else:
+            nsamples = numpy.append(osamples[0:dec.start], samples)
+
+        return nsamples
+
+    def all_ffts(self, samples):
+        assert len(samples) >= 79*self.jblock
+
+        bins = numpy.zeros([ 79, self.jblock/2+1 ], dtype=numpy.complex128)
+        for si in range(0, 79):
+            i0 = si * self.jblock
+            i1 = i0 + self.jblock
+            a = weakutil.rfft(samples[i0:i1])
+            bins[si,:] = a
+        return bins
+
+    # subtract a decoded signal (hz/start/twelve) from the samples,
+    # so that we can then decode weaker signals underneath it.
+    # i.e. interference cancellation.
+    def subtract_v8(self, osamples, dec, hz0):
+        bin_hz = self.jrate / float(self.jblock)
+
+        # the 79 symbols, each 0..8
+        symbols = dec.symbols
+
+        bin0 = int(round(hz0 / bin_hz))
+        down_hz = hz0 - (bin0 * bin_hz)
+
+        # center signal in an FFT bin, since we only subtract from
+        # a single bin per symbol time.
+        downsamples = weakutil.freq_shift(osamples, -down_hz, 1.0/self.jrate)
+
+        if dec.start < 0:
+            samples = numpy.append([0.0]*(-dec.start), downsamples)
+        else:
+            samples = downsamples[dec.start:]
+
+        # re-do an FFT per symbol time.
+        ffts = self.all_ffts(samples)
+
+        i = 0
+        while i < len(symbols):
+            # start+end of symbol in samples[]
+            i0 = i * self.jblock
+            i1 = i0 + self.jblock
+
+            a = ffts[i,:]
+            si = bin0 + symbols[i]
+
+            a[si] = 0.0
+
+            samples[i0:i1] = weakutil.irfft(a)
+
+            i += 1
+
+        if dec.start < 0:
+            nsamples = samples[(-dec.start):]
+        else:
+            nsamples = numpy.append(downsamples[0:dec.start], samples)
+
+        nsamples = weakutil.freq_shift(nsamples, down_hz, 1.0/self.jrate)
+
+        return nsamples
+
+    def strength_v3(self, m79):
         a = m79[0:7] + m79[36:43] + m79[72:79]
-        sum = (a[0,costas_symbols[0]] +
-               a[1,costas_symbols[1]] +
-               a[2,costas_symbols[2]] +
-               a[3,costas_symbols[3]] +
-               a[4,costas_symbols[4]] +
-               a[5,costas_symbols[5]] +
-               a[6,costas_symbols[6]])
-        #sum = sum - numpy.sum(a)*noise_factor + sum*noise_factor
 
-        # subtract surrounding bins
-        neg = 0
-        # left
-        neg += (a[0,5] + a[1,6] + a[2,0] +
-                a[3,4] + a[4,1] + a[5,3])
-        # up
-        neg += (a[0,3] + a[1,6] + a[2,7] + a[3,1] +
-                a[4,5] + a[5,2] + a[6,4])
-        # right
-        neg += (a[1,2] + a[2,5] + a[3,6] + a[1,0] +
-                a[5,4] + a[6,1])
-        # down
-        neg += (a[0,1] + a[1,4] + a[2,5] +
-                a[4,3] + a[5,0] + a[6,2])
-        neg /= 4.0
-        sum -= neg
+        yes = 0.0
+        
+        for i in range(0,len(costas_symbols)):
+            yes += a[i,costas_symbols[i]]
 
-        if contrast_weight > 0:
-            for b in [ m79[8:36], m79[44:72] ]:
-                sss = numpy.sort(b, 1)
-                z = numpy.sum(sss[:,7])
-                z -= numpy.sum(sss[:,0:7]) * noise_factor
-                sum += contrast_weight * z
+        sum = yes / (numpy.sum(a) - yes)
 
         return sum
 
@@ -2583,34 +3055,6 @@ class FT8:
 
         return contrast
 
-    # use freq_from_fft to find offset from center of bin
-    def alternate_best_freq(self, xf, hz, offset):
-        [ hz0, offset0, ss ] = xf.getall_complex(hz, offset)
-        ss = abs(ss)
-        bin_hz = self.jrate / float(self.jblock)
-        bin = bin_of(hz - hz0)
-        start = offset // self.jblock
-        # ss[start:start+79,bin:bin+8]
-        hz_sum = 0.0
-        weight_sum = 0.0
-        for i0 in [0, 36, 72]:
-            for i in range(i0, i0+7):
-                maxi = costas_symbols[i-i0]
-                mini = numpy.argmin(ss[start+i,bin:bin+8])
-                vv = ss[start+i,bin+maxi-1:bin+maxi+2]
-                xp = weakutil.parabolic(numpy.log(vv), 1) # interpolate
-                if xp != None and xp[0] >= 0 and xp[0] <= 2:
-                    true_bin = xp[0] + bin + maxi - 1
-                    true_hz = true_bin * bin_hz
-                    true_hz -= maxi * bin_hz # reference back to base tone
-                    weight = ss[start+i,bin+maxi] / ss[start+i,bin+mini]
-                    #weight -= 1
-                    hz_sum += true_hz * weight
-                    weight_sum += weight
-        if weight_sum == 0:
-            return hz
-        return (hz_sum / weight_sum) + hz0
-
     # find hz with best Costas sync at offset=start.
     # look at frequencies midhz +/ slop,
     # at granule hz increments.
@@ -2626,46 +3070,12 @@ class FT8:
             m79 = m79[0:79]
             # m79 has 79 8-bucket mini-FFTs.
 
-            c = self.strength(m79)
+            c = self.strength_v3(m79)
 
             rank.append([hz, c])
 
         rank = sorted(rank, key = lambda e : - e[1])
         return rank[0]
-
-    def old_best_freq(self, xf, midhz, start, slop, granule):
-        start = int(start)
-
-        # a Costas sync array.
-        costas_array = numpy.ones((7, 8)) * (-1 / 7.0)
-        for i in range(0, len(costas_symbols)):
-            costas_array[i][costas_symbols[i]] = 1
-
-        hz_start = midhz - slop
-        hz_end = midhz + slop
-
-        corrs = [ ]
-        for hz in numpy.arange(hz_start, hz_end*1.0001, granule):
-            [ _, _, ss ] = xf.get(hz, start)
-            if len(ss) < 79:
-                continue
-            # ss has 79 8-bucket mini-FFTs.
-
-            a = ss[0:7] + ss[36:43] + ss[72:79]
-            norm = numpy.sum(a)
-            b = a * costas_array
-            c = numpy.sum(b)
-            c = c / norm
-
-            if contrast_weight > 0:
-                contrast = self.contrast(ss)
-                contrast *= contrast_weight
-                c += contrast
-
-            corrs.append([hz, c])
-
-        corrs = sorted(corrs, key = lambda e : - e[1])
-        return corrs[0]
 
     # find offset with best Costas sync at hz.
     # looks at offsets at start +/- slop,
@@ -2684,14 +3094,15 @@ class FT8:
             m79 = m79[0:79]
             # m79 has 79 8-bucket mini-FFTs.
 
-            c = self.strength(m79)
+            c = self.strength_v3(m79)
 
             rank.append([off, c])
 
         rank = sorted(rank, key = lambda e : - e[1])
         return rank
 
-    def coarse1(self, xf, adjusted_start, hzoff, offoff, min_hz, max_hz):
+    def coarse1(self, xf, adjusted_start, hzoff, offoff, min_hz, max_hz,
+                tminus, tplus):
         # prepare a template for 2d correlation containing
         # the three Costas arrays.
         template = numpy.zeros((79, 8))
@@ -2707,16 +3118,18 @@ class FT8:
         min_hz_bin = bin_of(min_hz - hz0)
         max_hz_bin = bin_of(max_hz - hz0) + 8
 
-        min_sym = int((adjusted_start - self.jrate*coarse_tminus) / self.jblock)
-        max_sym = int((adjusted_start + self.jrate*coarse_tplus) / self.jblock)
+        min_sym = int((adjusted_start - self.jrate*tminus) / self.jblock)
+        max_sym = int((adjusted_start + self.jrate*tplus) / self.jblock)
 
         m = m[min_sym:79+max_sym,min_hz_bin:max_hz_bin]
 
         if True:
-            mlen = len(m)
-            tlen = len(template)
-            minussyms = int(round((self.jrate * coarse_tminus) / float(self.jblock)))
-            plussyms = int(round((self.jrate * coarse_tplus) / float(self.jblock)))
+            # instead of matching the full 79-symbol template against
+            # the full spectrum matrix m[][], just match the costas part
+            # of the template against the costas part of m[][].
+            # in practice, this is neither a win nor a lose.
+            minussyms = int(round((self.jrate * tminus) / float(self.jblock)))
+            plussyms = int(round((self.jrate * tplus) / float(self.jblock)))
             slopsyms = minussyms + plussyms
             m = numpy.concatenate([ m[0:7+slopsyms],
                                     m[36:43+slopsyms],
@@ -2757,13 +3170,16 @@ class FT8:
 
         return h
 
-    def coarse(self, xf, adjusted_start, min_hz, max_hz):
+    def coarse(self, xf, adjusted_start, min_hz, max_hz,
+               tminus, tplus):
         bin_hz = self.jrate / float(self.jblock)
 
         h = [ ]
-        for hzoff in numpy.arange(0.0, bin_hz, bin_hz / coarse_fstep):
-            for offoff in range(0, self.jblock, int(self.jblock / coarse_tstep)):
-                hx = self.coarse1(xf, adjusted_start, hzoff, offoff, min_hz, max_hz)
+        for hzoff in numpy.arange(0.0, bin_hz, bin_hz / xf.fstep):
+            for offoff in range(0, self.jblock, int(self.jblock / xf.tstep)):
+                hx = self.coarse1(xf, adjusted_start, hzoff, offoff,
+                                  min_hz, max_hz,
+                                  tminus, tplus)
                 h += hx
 
         h = sorted(h, key = lambda e : -e[2])
@@ -2793,6 +3209,7 @@ class FT8:
         snr += 3
         return snr
 
+    # three un-gray-coded Costas arrays.
     ci3 = numpy.array([ 2, 5, 6, 0, 4, 1, 3,
                         2, 5, 6, 0, 4, 1, 3,
                         2, 5, 6, 0, 4, 1, 3 ], dtype=numpy.int32)
@@ -2802,15 +3219,109 @@ class FT8:
     # symbol values for soft decoding.
     # m79 is 79 8-bucket mini FFTs, for 8-FSK demodulation.
     # m79[0..79][0..8]
-    # returns None or a Decode.
     # return [ winmean, winstd, losemean, losestd ],
-    # for use in LDPC decoder.
     def softstats(self, m79, i0=0, i1=79):
 
         if True:
-            # this works best, 596 (574 of 675)
+            # 1210 of 1370
+            # 1120 of 1370
+            # 1215 of 1370
+            # 1212 of 1370
+            # 1213 of 1370
+            # for some reason it's apparently important that losers
+            # include winners!
             winners = numpy.max(m79[i0:i1], 1)
             losers = m79[i0:i1]
+
+        if False:
+            # 1184
+            x = self.zeroone(m79)
+            winners = numpy.max(x[i0:i1], 1)
+            losers = numpy.min(x[i0:i1], 1)
+
+        if False:
+            xx = numpy.sort(m79[i0:i1], 1)
+            winners = xx[:,soft1:soft2]
+            losers = xx[:,soft3:soft4]
+
+        if False:
+            # 1172 of 1370
+            # loglikelihood() compares strongest with second-strongest.
+            # no: score 489 (451 of 553)
+            xx = numpy.sort(m79[i0:i1], 1)
+            winners = xx[:,7]
+            losers = xx[:,5:7] # 407
+            # losers = xx[:,6:7] # 402
+
+        if False:
+            # 1167 of 1370
+            # 1173 of 1370
+            winners = numpy.max(m79[i0:i1], 1)
+            losers = winners
+
+        if False:
+            # 1202 of 1370
+            # 1205 of 1370
+            # 1205 of 1370
+            # this works remarkably well!
+            winners = m79
+            losers = m79
+
+        if False:
+            # 1211 of 1370
+            # 1206 of 1370
+            # 1204 of 1370
+            winners = numpy.max(m79[i0:i1], 1)
+            losers = m79[i0:i1,0]
+
+        if False:
+            # 1136 of 1370
+            # 1141 of 1370
+            # 1127 of 1370
+            xxx = numpy.argmax(m79[i0:i1], 1)
+            winners = m79[range(i0,i1),xxx]
+            xxx = numpy.mod(xxx + 4, 8)
+            losers = m79[range(i0,i1),xxx]
+
+        if False:
+            # 1139 of 1370
+            # 1143 of 1370
+            # 1145 of 1370
+            xxx = numpy.argmax(m79[i0:i1], 1)
+            winners = m79[range(i0,i1),xxx]
+            losers = numpy.concatenate( (
+                m79[range(i0,i1),numpy.mod(xxx + 2, 8)],
+                m79[range(i0,i1),numpy.mod(xxx + 4, 8)],
+                m79[range(i0,i1),numpy.mod(xxx + 6, 8)] ) )
+
+        if False:
+            # 1153 of 1370
+            # 477 (439 of 553)
+            # sort each symbol-time's 8 bins,
+            # so that xx[i][7] is biggest.
+            xx = numpy.sort(m79[i0:i1], 1)
+            winners = xx[:,7]
+            losers = xx[:,0:7]
+
+        if False:
+            # 1123 of 1370
+            # 1126 of 1370
+            # this works best, ft8-n13/c.txt score 522 (470 of 553)
+            winners = numpy.max(m79[i0:i1], 1)
+            losers = numpy.sort(m79[i0:i1].flatten())[0:-79]
+
+        if False:
+            # 1094 of 1370
+            # 1109 of 1370
+            all = numpy.sort(m79[i0:i1].flatten())
+            winners = all[-79:]
+            losers = all[0:-79]
+
+        if False:
+            # 1041 of 1370
+            # 1043 of 1370
+            winners = numpy.max(m79[i0:i1], 1)
+            losers = numpy.min(m79[i0:i1], 1)
 
         if False:
             # 595 (575 of 675)
@@ -2885,7 +3396,8 @@ class FT8:
         if False:
             import matplotlib.pyplot as plt
             plt.plot(winners)
-            plt.plot(losers[::7])
+            #plt.plot(losers[::7])
+            plt.plot(losers.flatten())
             plt.show()
 
         winmean = numpy.mean(winners)
@@ -2893,84 +3405,22 @@ class FT8:
         losemean = numpy.mean(losers)
         losestd = numpy.std(losers)
 
+        if False:
+            print("%.2f %.2f, %.2f %.2f" % (winmean, winstd, losemean, losestd))
+            numpy.savetxt("win.txt", winners, fmt="%f")
+            numpy.savetxt("lose.txt", losers.flatten(), fmt="%f")
+            sys.exit(1)
+
         return [ winmean, winstd, losemean, losestd ]
 
-    # try to guess Hz error from phase errors.
-    # mm is 79 complex 8-bin mini-FFTs.
-    # if hz were exactly centered in an FFT bin, the
-    # phase of each tone would be the same for all
-    # occurences (but different tones usually have
-    # different phases due to offset in time).
-    # the signal probably isn't exactly centered in frequency
-    # in an FFT bin. this induces a drift in the FFT phase.
-    # guess that drift, in radians per symbol time, -pi..pi.
-    # returns [ radians, hz ]
-    def phase_drift(self, mm):
-        last_theta = numpy.zeros(8)
-        last_i = numpy.zeros(8, dtype=numpy.int32) - 1
-        nbuckets = 2*phase_gran # +/- pi/100
-        buckets = numpy.zeros(nbuckets, dtype=numpy.int32)
-
-        gran = 1
-        if coarse_fstep > 1:
-            gran *= coarse_fstep
-        if fine_fstep > 1:
-            gran *= fine_fstep
-        max_phase_drift_per_symbol = 2 * math.pi / gran
-
-        for i in range(0, len(mm)):
-            if i < 7 or (i >= 36 and i < 42) or (i >= 72):
-                # a costas symbol
-                maxi = costas_symbols[i % 36]
-            else:
-                maxi = numpy.argmax(abs(mm[i,:])) # number of strongest of 8-FSK tones
-            x = mm[i,maxi]
-            theta = math.atan2(x.imag, x.real)
-            if last_i[maxi] >= 0:
-                # the difference in phase between successive instances
-                # of the same tone includes some number of complete 2*pi
-                # cycles. but because hz can't be more than a fraction of
-                # an FFT bin off, there's a limit to the number of 
-                # complete cycles.
-                maxwrap = (i - last_i[maxi]) * max_phase_drift_per_symbol
-                for wrap in numpy.arange(0, maxwrap+0.001, 2*math.pi):
-                    slope = (theta - last_theta[maxi] + wrap) / (i - last_i[maxi])
-                    while slope >= math.pi:
-                        slope -= 2*math.pi
-                    while slope <= -math.pi:
-                        slope += 2*math.pi
-                    assert slope >= -math.pi and slope < math.pi
-                    bi = int((slope/math.pi)*phase_gran) + phase_gran
-                    assert bi >= 0 and bi < len(buckets)
-                    buckets[bi] += 1
-            last_i[maxi] = i
-            last_theta[maxi] = theta
-
-        maxb = numpy.argmax(buckets)
-
-        # estimated phase drift, i.e. change in phase, radians per symbol time.
-        radians = ((maxb - phase_gran) / float(phase_gran)) * math.pi
-
-        # estimated frequency error in Hz.
-        hz = (radians * (self.jrate / self.jblock)) / (2 * math.pi)
-
-        return [ radians, hz ]
-
-    # returns 174 log-likelihood values for whether each
-    # bit is a zero.
-    def loglikelihood(self, m58, winmean, winstd, losemean, losestd):
-
-        # 576 (556 of 675)
-        # Bayes combining rule from:
-        # http://cs.wellesley.edu/~anderson/writing/naive-bayes.pdf
-
-        wm = winmean
-        ws = winstd
-        lm = losemean
-        ls = losestd
-
+    # m58[58][8]. returns, for each of 3*58 bits,
+    # an array of two values: the strength of the strongest tone
+    # that would make the bit a zero, and a one.
+    # m58 should have been de-gray-coded.
+    def zeroone(self, m58):
         n = len(m58)
-        ll174 = numpy.zeros(3 * n)
+
+        x174 = numpy.zeros([ 3 * n, 2 ])
 
         bi = 0
         for [ v0, v1 ] in [
@@ -2982,6 +3432,9 @@ class FT8:
                 ]:
             # treat each of the three bits in a symbol separately.
 
+            # eX[i] is max signal over the four bins that could
+            # cause the symbol to yield an X for this bit.
+
             e0 = numpy.maximum(
                    numpy.maximum(m58[range(0,n),v0[0]], m58[range(0,n),v0[1]]),
                    numpy.maximum(m58[range(0,n),v0[2]], m58[range(0,n),v0[3]]))
@@ -2989,104 +3442,410 @@ class FT8:
                    numpy.maximum(m58[range(0,n),v1[0]], m58[range(0,n),v1[1]]),
                    numpy.maximum(m58[range(0,n),v1[2]], m58[range(0,n),v1[3]]))
 
-            # start with measured a-priori bit probabilities.
-            # XXX need to re-measure for new FT8.
-            pone = apriori174[bi::3]
-            pzero = 1.0 - pone
+            x174[bi::3] = numpy.stack([e0, e1], axis=1)
 
-            # P(zero)P(e0|zero)P(e1|zero)
-            a = pzero * vproblt(e0, wm, ws) * vprobgt(e1, lm, ls)
-
-            # P(one)P(e0|one)P(e1|one)
-            b = pone * vprobgt(e0, lm, ls) * vproblt(e1, wm, ws)
-
-            ab = a + b
-            p0 = numpy.divide(a, ab, out=numpy.repeat(0.5, len(a)), where=ab!=0)
-
-            # log likelihood of t0 being the correct symbol.
-            # ll0 = log(p0 / (1 - p0))
-            # log(148) = 4.99
-            dd = numpy.divide(p0, (1.0 - p0), out=numpy.repeat(148.0, len(p0)), where=p0<0.99)
-            ll = numpy.log(dd, out=numpy.repeat(-5.0, len(dd)), where=dd>0)
-
-            ll = numpy.maximum(ll, -5.0)
-            ll = numpy.minimum(ll, 5.0)
-
-            ll174[bi::3] = ll
             bi += 1
 
+        return x174
 
-        return ll174
+    # m58[58][8]. returns, for each of 3*58 bits,
+    # an array of 8 values: the strengths of the tones
+    # that would make the bit a zero, strongest first;
+    # and similarly for one.
+    # m58 should have been de-gray-coded.
+    def zeroone8(self, m58):
+        n = len(m58)
 
-    # demodulate using phase as well as amplitude.
-    # returns a 79x8 vector with scalars, indicating
-    # how close each tone is to what we received.
-    # values can be negative.
-    # direction is 1 or -1.
-    # syms is just for debugging (it's the 79 correct tone numbers).
-    # sadly, I have not been able to make this beat abs().
-    # I think the problem is that, with eight tones, there's a good
-    # chance that a wrong tone randomly has a good-looking phase.
-    # plus, if the amplitudes are weak, phase_drift() won't work well.
-    def phase_demodulate(self, m79complex):
-        out = numpy.zeros((79, 8))
+        x174 = numpy.zeros([ 3 * n, 8 ])
 
-        # pd[0] is phase drift in radians per symbol time.
-        # pd[1] is frequency error in hz, i.e. distance from FFT bin center.
-        pd = self.phase_drift(m79complex)
-        estimated_drift = pd[0]
+        bi = 0
+        for [ v0, v1 ] in [
+                # symbol numbers that make this bit zero and one.
+                # most-significant bit first.
+                [ [ 0, 1, 2, 3 ], [ 4, 5, 6, 7 ] ],
+                [ [ 0, 1, 4, 5 ], [ 2, 3, 6, 7 ] ],
+                [ [ 0, 2, 4, 6 ], [ 1, 3, 5, 7 ] ],
+                ]:
+            # treat each of the three bits in a symbol separately.
 
-        # each tone generally has a different characteristic phase
-        # if the offset is wrong (which it generally is).
-        # predict phase from nearest Costas tone.
-        # guesses[symbol_number][tone] is the phase prediction.
-        guesses = numpy.zeros((79,8))
-        for ci in range(0, len(costas_symbols)):
-            tone = costas_symbols[ci]
-            for [ cj, i0, i1 ] in [ [ 0, 0, 25 ], [ 36, 25, 52 ], [ 72, 52, 79 ] ]:
-                refi = cj + ci
-                x = m79complex[refi][tone]
-                theta = math.atan2(x.imag, x.real)
-                for k in range(i0, i1):
-                    guesses[k,tone] = theta + estimated_drift*(k-refi)
+            # eX[i] is max signal over the four bins that could
+            # cause the symbol to yield an X for this bit.
 
-        for i in range(0, len(m79complex)):
-            meda = numpy.median(abs(m79complex[i]))
-            a = abs(m79complex[i])
-            strength = numpy.copy(a)
-            s7 = strength[7] # set up to treat tone 7 specially, since no expected phase.
-            expected_phase = guesses[i]
-            n = numpy.cos(expected_phase) + 1j*numpy.sin(expected_phase)
-            v = m79complex[i] / a
-            dot = (n.imag*v.imag) + (n.real*v.real) # dot product, -1..1
-            # XXX is this the best way to combine ampl with phase?
-            best = numpy.argmax(dot)
-            if a[best] > meda:
-                strength[best] += dot[best] * a[best] # (a[best] - meda)
-            out[i] = strength
-            out[i][7] = s7
+            e0 = numpy.stack( [
+                m58[range(0,n),v0[0]],
+                m58[range(0,n),v0[1]],
+                m58[range(0,n),v0[2]],
+                m58[range(0,n),v0[3]]
+              ], axis=1 )
+            e0 = numpy.sort(e0, axis=1)
 
-        return out
+            e1 = numpy.stack( [
+                m58[range(0,n),v1[0]],
+                m58[range(0,n),v1[1]],
+                m58[range(0,n),v1[2]],
+                m58[range(0,n),v1[3]]
+              ], axis=1 )
+            e1 = numpy.sort(e1, axis=1)
+
+            st = numpy.stack([ e0[:,0], e0[:,1], e0[:,2], e0[:,3],
+                               e1[:,0], e1[:,1], e1[:,2], e1[:,3] ], axis=1)
+
+            x174[bi::3] = st
+
+            bi += 1
+
+        return x174
+
+    # like zeroone() but special case costas.
+    # after de-gray-code, so Costas is 2 1 6 0 5 4 3
+    # return is [ winners, losers ]
+    # one per bit.
+    # intended for statistics.
+    def winlose(self, m79):
+        graycostas = numpy.array([2, 1, 6, 0, 5, 4, 3], dtype=numpy.int)
+
+        if False:
+            n = len(m79)
+            winsym = numpy.argmax(m79, 1)
+            winsym[0:7] = graycostas
+            winsym[36:36+7] = graycostas
+            winsym[72:72+7] = graycostas
+
+        if True:
+            winsym = numpy.concatenate([ graycostas, graycostas, graycostas ])
+            m79 = numpy.concatenate([ m79[0:7], m79[36:36+7], m79[72:72+7] ])
+            n = len(m79)
+
+        # turn each 8-level symbol into 3 bits,
+        # most significant bit first.
+        winbit = numpy.zeros(n*3, dtype=numpy.int)
+        winbit[0::3] = numpy.bitwise_and(numpy.right_shift(winsym, 2), 1) # 4
+        winbit[1::3] = numpy.bitwise_and(numpy.right_shift(winsym, 1), 1) # 2
+        winbit[2::3] = numpy.bitwise_and(numpy.right_shift(winsym, 0), 1) # 1
+
+        winners = numpy.zeros(3 * n)
+        losers = numpy.zeros(3 * n)
+
+        bi = 0
+        for [ v0, v1 ] in [
+                # symbol numbers that make this bit zero and one.
+                # most-significant bit first.
+                [ [ 0, 1, 2, 3 ], [ 4, 5, 6, 7 ] ],
+                [ [ 0, 1, 4, 5 ], [ 2, 3, 6, 7 ] ],
+                [ [ 0, 2, 4, 6 ], [ 1, 3, 5, 7 ] ],
+                ]:
+            # treat each of the three bits in a symbol separately.
+
+            # eX[i] is max signal over the four bins that could
+            # cause the symbol to yield an X for this bit.
+
+            e0 = numpy.maximum(
+                   numpy.maximum(m79[range(0,n),v0[0]], m79[range(0,n),v0[1]]),
+                   numpy.maximum(m79[range(0,n),v0[2]], m79[range(0,n),v0[3]]))
+            e1 = numpy.maximum(
+                   numpy.maximum(m79[range(0,n),v1[0]], m79[range(0,n),v1[1]]),
+                   numpy.maximum(m79[range(0,n),v1[2]], m79[range(0,n),v1[3]]))
+
+            #winners[bi::3] = numpy.maximum(e0, e1)
+            #losers[bi::3] = numpy.minimum(e0, e1)
+
+            winners[bi::3] = numpy.where(winbit[bi::3]!=0, e1, e0)
+            losers[bi::3] = numpy.where(winbit[bi::3]==0, e1, e0)
+
+            bi += 1
+
+        if False:
+            losers = numpy.concatenate([winners,losers])
+
+        return [ winners, losers ]
+
+    def probyes(self, sig, winmean, winstd):
+        v = numpy.copy(sig)
+
+        v *= yes_mul
+        v += yes_add
+
+        v = vproblt(v, winmean, winstd)
+
+        #v *= yes_mul
+        #v += yes_add
+
+        v = numpy.minimum(v, 1.0)
+        v = numpy.maximum(v, 0.0)
+
+        return v
+
+    def probno(self, sig, losemean, losestd):
+        v = numpy.copy(sig)
+
+        v *= no_mul
+        v += no_add
+
+        v = vprobgt(v, losemean, losestd)
+
+        #v *= no_mul
+        #v += no_add
+
+        v = numpy.minimum(v, 1.0)
+        v = numpy.maximum(v, 0.0)
+
+        return v
+
+    # m79 has been de-gray coded (including the three Costas arrays).
+    # returns 174 log-likelihood values for whether each
+    # bit is a zero.
+    # really returns [ loglikelihood, P(0) ]
+    def loglikelihood(self, m79):
+
+        if True:
+            # winmean, winstd, losemean, losestd
+            [ wm, ws, lm, ls ] = self.softstats(m79)
+
+        if False:
+            [ winners, losers ] = self.winlose(m79)
+
+            wm = numpy.mean(winners)
+            ws = numpy.std(winners)
+
+            # separately for each of 3 bits in a symbol.
+            if True:
+                lm = numpy.mean(losers)
+                ls = numpy.std(losers)
+            else:
+                losers3 = [ losers[0::3], losers[1::3], losers[2::3] ]
+                lma = [ ]
+                lsa = [ ]
+                for ll in losers3:
+                    lma.append(numpy.mean(ll))
+                    lsa.append(numpy.std(ll))
+                lm = numpy.zeros(174)
+                lm[0::3] = lma[0]
+                lm[1::3] = lma[1]
+                lm[2::3] = lma[2]
+                ls = numpy.zeros(174)
+                ls[0::3] = lsa[0]
+                ls[1::3] = lsa[1]
+                ls[2::3] = lsa[2]
+
+        if wm < 0.000001:
+            # this happens when we look again at a signal that
+            # has been subtracted by zeroing FFTCache bins.
+            return None
+
+        # drop the three 7-symbol Costas arrays.
+        m58 = numpy.concatenate( [ m79[7:36], m79[43:72] ] )
+
+        zo174 = self.zeroone(m58)
+
+        e0 = zo174[:,0]
+        e1 = zo174[:,1]
+
+        # start with measured a-priori bit probabilities,
+        # one for each of the 174 bit positions.
+        # i.e. P(one) and P(zero)
+        if use_apriori:
+            pone = apriori174
+        else:
+            pone = null_apriori174
+        pone = pone[0:len(e0)]
+        pzero = 1.0 - pone
+
+        # Bayes says:
+        #                P(e0 | zero) P(zero)
+        # P(zero | e0) = --------------------
+        #                       P(e0)
+
+        if False:
+            # this works well.
+            # it uses CDF rather than PDF.
+
+            # a = P(zero)P(e0|zero)P(e1|zero)
+            a = pzero * vproblt(e0, wm, ws) * vprobgt(e1, lm, ls)
+
+            # b = P(one)P(e0|one)P(e1|one)
+            b = pone * vprobgt(e0, lm, ls) * vproblt(e1, wm, ws)
+
+            # Bayes combining rule normalization from:
+            # http://cs.wellesley.edu/~anderson/writing/naive-bayes.pdf
+
+            denom = a + b
+
+            p0 = numpy.divide(a, denom, out=numpy.repeat(0.5, len(a)), where=denom>0)
+
+        if True:
+            # a = P(zero)P(e0|zero)P(e1|zero)
+            a = pzero * self.probyes(e0, wm, ws) * self.probno(e1, lm, ls)
+
+            # b = P(one)P(e0|one)P(e1|one)
+            b = pone * self.probno(e0, lm, ls) * self.probyes(e1, wm, ws)
+
+            # Bayes combining rule normalization from:
+            # http://cs.wellesley.edu/~anderson/writing/naive-bayes.pdf
+
+            denom = a + b
+
+            p0 = numpy.divide(a, denom, out=numpy.repeat(0.5, len(a)), where=denom>0)
+
+        if False:
+            # a = P(zero)P(e0|zero)P(e1|zero)
+            a = pzero * numpy.minimum(1.0, 2.0*vproblt(e0, wm, ws)) * numpy.minimum(1.0, 2.0*vprobgt(e1, lm, ls))
+
+            # b = P(one)P(e0|one)P(e1|one)
+            b = pone * numpy.minimum(1.0, 2.0*vprobgt(e0, lm, ls)) * numpy.minimum(1.0, 2.0*vproblt(e1, wm, ws))
+
+            # Bayes combining rule normalization from:
+            # http://cs.wellesley.edu/~anderson/writing/naive-bayes.pdf
+
+            denom = a + b
+
+            p0 = numpy.divide(a, denom, out=numpy.repeat(0.5, len(a)), where=denom>0)
+
+        if False:
+            # this is totally broken.
+
+            # a = P(zero)P(e0|zero)P(e1|zero)
+            a = pzero * vproblt(e0, wm, ws) * vprobgt(e1, lm, ls)
+
+            # b = P(one)P(e0|one)P(e1|one)
+            b = pone * vprobgt(e0, lm, ls) * vproblt(e1, wm, ws)
+
+            # denominator = P(e0)P(e1)
+            denom_e0 = 0.5 * (vproblt(e0, wm, ws) + vproblt(e0, lm, ls))
+            denom_e1 = 0.5 * (vprobgt(e1, lm, ls) + vprobgt(e1, wm, ws))
+            denom = denom_e0 * denom_e1
+
+            p0 = numpy.divide(a, denom, out=numpy.repeat(0.5, len(a)), where=denom>0)
+
+        if False:
+            # Bayes rule for P(zero | strength of zero bin).
+            # using PDF of winmean/winstd distribution.
+            # norm.pdf(x) yields PDF, x is in units of std dev away from mean.
+            # 266 (261 of 553)
+            e0zero = scipy.stats.norm.pdf((e0 - winmean) / winstd)
+            e0one = scipy.stats.norm.pdf((e0 - losemean) / losestd)
+            numerator = e0zero * pzero
+            denominator = e0zero*pzero + e0one*pone
+            p0 = numpy.divide(numerator, denominator, out=numpy.repeat(0.5, len(numerator)),
+                              where=denominator>0)
+
+        if False:
+            # 485 (442 of 553)
+            # Bayes rule with two pieces of evidence: look at
+            # strengths of both the tone for bit=0 (e0) and
+            # the tone for bit=1 (e1).
+            #
+            # the combining rule is straightforward if you assume
+            # independence, e.g. P(e0 and e1) = P(e0)P(e1):
+            #
+            #                       P(e0 | zero) P(e1 | zero) P(zero)
+            # P(zero | e0 and e1) = ----------------------------------
+            #                                P(e0) P(e1)
+            #
+            # however, e0 and e1 certainly aren't independent: if one
+            # is high, the other is very likely to be low, since they
+            # represent FSK tones.
+            
+            e0zero = scipy.stats.norm.pdf((e0 - winmean) / winstd)
+            e0one = scipy.stats.norm.pdf((e0 - losemean) / losestd)
+
+            e1zero = scipy.stats.norm.pdf((e1 - losemean) / losestd)
+            e1one = scipy.stats.norm.pdf((e1 - winmean) / winstd)
+
+            numerator = e0zero * e1zero * pzero
+
+            denominator = (e0zero*pzero + e0one*pone) * (e1zero*pzero + e1one*pone)
+
+            p0 = numpy.divide(numerator, denominator, out=numpy.repeat(0.5, len(numerator)),
+                              where=denominator>0)
+
+        if False:
+            # score 507 (462 of 553)
+            # 
+            # this is the party line for using bayes with two FSK tones.
+            #
+            # Bayes combining rule from:
+            # http://cs.wellesley.edu/~anderson/writing/naive-bayes.pdf
+            # for numerator, assumes conditional independence of e0 and e1.
+            # for denominator, conditional independence and normalization.
+            # conditional independence is probably an OK assumption:
+            # P(e1|zero) probably doesn't depend on value of e1, since
+            # the assumption of zero puts e1 in the "lose" distribution.
+            
+            # P(e0 | zero)
+            e0zero = scipy.stats.norm.pdf((e0 - winmean) / winstd)
+
+            # P(e0 | one)
+            e0one = scipy.stats.norm.pdf((e0 - losemean) / losestd)
+
+            # P(e1 | zero)
+            e1zero = scipy.stats.norm.pdf((e1 - losemean) / losestd)
+
+            # P(e1 | one)
+            e1one = scipy.stats.norm.pdf((e1 - winmean) / winstd)
+
+            zero_numerator = e0zero * e1zero * pzero
+            one_numerator = e0one * e1one * pone
+
+            denominator = zero_numerator + one_numerator
+
+            p0 = numpy.divide(zero_numerator, denominator, out=numpy.repeat(0.5, len(zero_numerator)),
+                              where=denominator>0)
+
+        if False:
+            # 56 of 147
+            # from build_prob() on ft8-n11/big.txt
+            # maps metric to probability of the higher
+            # of e0/e1 being correct.
+            probs = numpy.array([ 
+                0.50, 0.53, 0.57, 0.61, 0.65, 0.68, 0.70, 0.72, 0.73, 0.74,
+                0.74, 0.74, 0.74, 0.75, 0.75, 0.75, 0.75, 0.75, 0.75, 0.75,
+                0.74, 0.74, 0.74, 0.73, 0.72, 0.72, 0.72, 0.73, 0.73, 0.74,
+                0.76, 0.77, 0.79, 0.80, 0.81, 0.83, 0.84, 0.85, 0.87, 0.87,
+                0.89, 0.89, 0.89, 0.90, 0.91, 0.92, 0.91, 0.92, 0.93, 0.94,
+                0.93, 0.93, 0.95, 0.98, 0.98, 0.99 ])
+            
+            mhigh = numpy.maximum(e0, e1)
+            mlow = numpy.minimum(e0, e1)
+            metric = mhigh / mlow
+            metric = numpy.log(metric)
+            metric = metric * 10.0
+            metric = numpy.round(metric)
+            metric = metric.astype(numpy.int32)
+            metric = numpy.minimum(metric, len(probs)-1)
+            px = probs[metric]
+
+            p0 = numpy.where(e0 > e1, px, 1.0 - px)
+
+        # log likelihood of t0 being the correct symbol.
+        # ll0 = log(p0 / (1 - p0))
+        # log(148) = 4.99
+        dd = numpy.divide(p0, (1.0 - p0), out=numpy.repeat(148.0, len(p0)), where=p0<0.99)
+        ll = numpy.log(dd, out=numpy.repeat(-5.0, len(dd)), where=dd>0)
+
+        ll = numpy.maximum(ll, -5.0)
+        ll = numpy.minimum(ll, 5.0)
+
+        return [ ll, p0 ]
 
     # are the 91 bits after LDPC ok?
     # in particular, is the CRC ok?
     # ldpc_ok should be 83, i.e. all LDPC parity checked OK.
-    def check91(self, a91, ldpc_ok):
-        assert len(a91) == 91
-        if ldpc_ok < 83:
-            return False
-        if check_crc(a91) == False:
-            return False
+    def check_ldpc(self, a91, ldpc_ok):
         if numpy.all(a91==0):
             return False
-        return True
+
+        if crc_and_83:
+            return (ldpc_ok >= ldpc_thresh) and check_crc(a91)
+        else:
+            return (ldpc_ok >= ldpc_thresh) or check_crc(a91)
+
 
     # m79 is 79 8-bucket mini FFTs, for 8-FSK demodulation.
     # m79 holds complex FFT results (with phase).
     # m79[0..79][0..8]
     # returns None or a Decode.
     # offset is just for dec and debugging.
-    def process2(self, m79complex, hz, offset, pass_):
+    def process2(self, m79complex, hz, offset, pass_, down_hz):
         if len(m79complex) < 79:
             return None
 
@@ -3102,117 +3861,167 @@ class FT8:
                 ccc = numpy.fft.fft(bbb)
                 m79complex[i] = ccc
 
-        # phase drift in radians per symbol time.
-        #pd = self.phase_drift(m79complex)
-
-        # estimated frequency error in Hz.
-        # fixing hz may make subsequent subtraction better.
-        # (though doesn't seem to in practice)
-        # hz is usually within 0.02 Hz of correct after this
-        # correction (down from 0.2 typically).
-        #hz += pd[1]
-
         snr = self.snr(abs(m79complex))
 
         m79 = abs(m79complex)
-        #m79 = self.phase_demodulate(m79complex)
 
-        if True:
+        if snr_overlap >= 0:
             # convert to S/N. this seems to help;
             # perhaps it makes successive symbols more comparable so
             # that softstats() works better.
-            maxm = numpy.max(m79, 1)
-            mm = numpy.median(m79, 1)
-            amm = numpy.zeros(79)
-            amm += mm
-            amm[0:-1] += mm[1:]
-            amm[1:] += mm[0:-1]
-            amm[1:-1] /= 3.0
-            amm[0] /= 2.0
-            amm[-1] /= 2.0
-            mm = amm
-            mm = numpy.select( [ mm > maxm/1000 ], [ mm ], default=maxm/1000)
-            # mm = numpy.select( [ mm != 0.0 ], [ mm ], default=1.0 ) # ??? how can m[i] be zero?
-            sm = numpy.stack([mm,mm,mm,mm,mm,mm,mm,mm], 1)
-            m79 = numpy.divide(m79, sm)
+            m79a = self.convert_to_snr(m79)
+        else:
+            m79a = numpy.copy(m79)
+        dec = self.process2a(m79a, hz, offset, snr, False, pass_, down_hz)
+        if dec != None:
+            return dec
 
-        [ winmean, winstd, losemean, losestd ] = self.softstats(m79)
+        if osd_no_snr and osd_depth >= 0:
+            # but on the other hand some signals are wrecked by
+            # converting to SNR.
+            # in many cases these are saved by OSD alone, not LDPC.
+            dec = self.process2a(m79, hz, offset, snr, True, pass_, down_hz)
+            if dec != None:
+                return dec
 
-        if winmean < 0.000001:
-            # this happens when we look again at a signal that
-            # has been subtracted by zeroing FFTCache bins.
-            return None
+        return None
 
-        # drop the three 7-symbol Costas arrays.
-        m58 = numpy.concatenate( [ m79[7:36], m79[43:72] ] )
+    # convert to S/N. the benefit is probably that it
+    # makes the statistics from softstats more meaningful,
+    # since it probably makes the input more stationary.
+    # the point of the statistics is so that LDPC can decide
+    # which bits are most likely to be correct, so we
+    # need to be able to compare strength of different
+    # bits, which SNR seems to help.
+    def convert_to_snr(self, m79):
+        sort79 = numpy.sort(m79, 1)
+
+        # for each symbol time, the maximum signal level of the 8 bins.
+        maxm = sort79[:,7]
+
+        # for each symbol time, the median signal level,
+        # as a measure of noise.
+        # this works better than e.g. min or mean.
+        mm = (sort79[:,3] + sort79[:,4]) / 2.0
+
+        #mm = (sort79[:,0] + sort79[:,4]) / 2.0 # 1171
+        #mm = (sort79[:,3] + sort79[:,4]) / 1.0 # 1175
+        #mm = sort79[:,6] # 1161
+        #mm = (sort79[:,5] + sort79[:,6]) # 1167
+        #mm = (sort79[:,0] + sort79[:,6]) # 1156
+        #mm = (sort79[:,4] + sort79[:,5]) # 1169
+        # mm = (sort79[:,3] + sort79[:,4] + sort79[:,5]) / 3.0 # 1159
+
+        # derive a local noise level for each symbol time by running a
+        # smallish window over mm.
+
+        winlen = 1 + 2*snr_overlap
+
+        if snr_wintype == "bartlett":
+            win = numpy.bartlett(winlen)
+        if snr_wintype == "blackman":
+            win = numpy.blackman(winlen)
+        if snr_wintype == "hamming":
+            win = numpy.hamming(winlen)
+        if snr_wintype == "hanning":
+            win = numpy.hanning(winlen)
+        if snr_wintype == "kaiser":
+            win = numpy.kaiser(winlen, 14)
+        if snr_wintype == "boxcar":
+            win = scipy.signal.boxcar(winlen)
+        if snr_wintype == "cosine":
+            win = scipy.signal.cosine(winlen)
+        if snr_wintype == "tukey":
+            win = scipy.signal.tukey(winlen)
+        if snr_wintype == "triang":
+            win = scipy.signal.triang(winlen)
+        if snr_wintype == "flattop":
+            win = scipy.signal.flattop(winlen)
+        if snr_wintype == "gaussian":
+            win = scipy.signal.gaussian(winlen, winlen / 6.0)
+        if snr_wintype == "nuttall":
+            win = scipy.signal.nuttall(winlen)
+        if snr_wintype == "parzen":
+            win = scipy.signal.parzen(winlen)
+        if snr_wintype == "dpss":
+            win = scipy.signal.windows.dpss(winlen, 3)
+                
+        #win = win / numpy.sum(win)
+        noise = numpy.convolve(mm, win)
+        noise = noise[winlen//2:]
+        if len(noise) > len(mm):
+            noise = noise[0:len(mm)]
+
+        noisefloor = maxm / 10000.0
+
+        noise = numpy.select( [ noise > noisefloor ], [ noise ], default=noisefloor)
+        noise8 = numpy.stack([noise]*8, 1)
+        m79a = numpy.divide(m79, noise8)
+        return m79a
+
+    # return a Decode or None
+    def try_decode(self, ll174, hz, offset, snr, do_osd):
+        self.ldpc_calls += 1 # for -cpubench
+
+        # decode LDPC(174,91)
+        [ ldpc_ok, a91 ] = ldpc_decode(ll174, ldpc_iters)
+
+        if self.check_ldpc(a91, ldpc_ok):
+            # fast path for success.
+            dec = self.process3(hz, offset, snr, a91)
+            return dec
+
+        if osd_depth >= 0 and do_osd:
+            [ a91, osd_score ] = osd_decode(ll174, osd_depth)
+            if len(a91) > 0 and check_crc(a91) and numpy.all(a91==0) == False:
+                dec = self.process3(hz, offset, snr, a91)
+                if dec != None:
+                    return dec
+
+        return None
+
+    def process2a(self, m79, hz, offset, snr, just_osd, pass_, down_hz):
 
         # un-gray-code tone strengths (before LDPC).
         revmap = numpy.array([ 0, 1, 3, 2, 6, 4, 5, 7 ], dtype=numpy.int32)
-        m58a = numpy.zeros([len(m58),8])
-        for i in range(0, len(m58)):
-            m58a[i][revmap] = m58[i]
+        m79a = numpy.zeros([len(m79),8])
+        for i in range(0, len(m79)):
+            m79a[i][revmap] = m79[i]
+        m79 = m79a
 
-        ll174 = self.loglikelihood(m58a, winmean, winstd, losemean, losestd)
+        [ ll174, _ ] = self.loglikelihood(m79)
 
-        # decode LDPC(174,91)
-        [ ldpc_ok, a91 ] = ldpc_decode(ll174)
+        maxll = numpy.max(abs(ll174))
 
-        if self.check91(a91, ldpc_ok):
-            # fast path for success.
-            return self.process3(hz, offset, snr, a91, ldpc_ok)
+        dec = self.try_decode(ll174, hz, offset, snr, True)
+        if dec != None:
+            return dec
+        if just_osd:
+            return None
 
-        # self.hints1 contains potential callsigns for first call
-        # e.g. the W6TRH in "W6TRH N8KDX -02", or CQ.
-        snd = FT8Send()
-        for hint in self.hints1:
-            cx = snd.packcall(hint) # 28 bits
-            llx = numpy.copy(ll174)
-            for i in range(0, 28):
-                if ((cx >> (27 - i)) & 1) == 0:
-                    llx[0+i] = 4.99
-                else:
-                    llx[0+i] = -4.99
-            [ ok1, a1 ] = ldpc_decode(llx)
-            if self.check91(a1, ok1):
-                dec = self.process3(hz, offset, snr, a1, ok1)
+        if pass_ > 0 or pass0_hints:
+            for hint in self.hints:
+                if hint.hz != None:
+                    hhz = hint.hz - down_hz
+                    if abs(hhz - hz) > hint_tol:
+                        continue
+                llx = numpy.copy(ll174)
+                if len(hint.packed1) > 0:
+                    llx[0:28] = hint.packed1 * maxll
+                if len(hint.packed2) > 0:
+                    llx[29:29+28] = hint.packed2 * maxll
+                if len(hint.packed1) == 0 or len(hint.packed2) == 0:
+                    # force i3=1
+                    llx[74] = maxll # 0
+                    llx[75] = maxll # 0
+                    llx[76] = -maxll # 1
+                    # force both R to 0
+                    llx[28] = maxll # 0
+                    llx[57] = maxll # 0
+                dec = self.try_decode(llx, hz, offset, snr, osd_hints)
                 if dec != None:
                     dec.hint = hint
-                    return dec
-
-        # self.hints2 contains potential callsigns for second call
-        # e.g. the N8KDX in "W6TRH N8KDX -02"
-        for hint in self.hints2:
-            cx = snd.packcall(hint) # 28 bits
-            llx = numpy.copy(ll174)
-            for i in range(0, 28):
-                if ((cx >> (27 - i)) & 1) == 0:
-                    llx[29+i] = 4.99
-                else:
-                    llx[29+i] = -4.99
-            if "CQ" in self.hints1:
-                cx = snd.packcall("CQ") # 28 bits
-                for i in range(0, 28):
-                    if ((cx >> (27 - i)) & 1) == 0:
-                        llx[0+i] = 4.99
-                    else:
-                        llx[0+i] = -4.99
-            [ ok1, a1 ] = ldpc_decode(llx)
-            if self.check91(a1, ok1):
-                dec = self.process3(hz, offset, snr, a1, ok1)
-                if dec != None:
-                    dec.hint = hint
-                    if "CQ" in self.hints1:
-                        dec.hint = "CQ " + dec.hint
-                    sys.stdout.flush()
-                    return dec
-
-        # at this point, we know a91 is wrong (e.g. CRC fails).
-
-        if osd_order >= 0:
-            d91 = osd_decode(ll174, osd_order)
-            if len(d91) > 0 and check_crc(d91) and numpy.all(d91==0) == False:
-                dec = self.process3(hz, offset, snr, d91, 83)
-                if dec != None:
+                    # sys.stdout.write("hint %s -> %s\n" % (hint, dec.msg))
                     return dec
 
         return None
@@ -3220,16 +4029,55 @@ class FT8:
     # unpack new 77-bit format.
     # a91 includes the CRC14, though it's already been checked.
     # CRC has already been checked.
-    def process3(self, hz, offset, snr, a91, ldpc_ok):
+    def process3(self, hz, offset, snr, a91):
         dec = self.unpack(a91)
         if dec == None:
             return None
         dec.hza = [ hz, hz ]
         dec.snr = snr
         dec.bits77 = a91[0:77]
+        snd = FT8Send()
+        dec.symbols = snd.make_symbols(dec.bits77) # needed for subtraction
         dec.decode_time = time.time()
         dec.start = offset
+        if False:
+            self.save_apriori(dec)
         return dec
+
+    # remember codeword bits in order to calculate
+    # a-priori bit value probabilities, for apriori174[].
+    # python bprob.py < ft8bits
+    def save_apriori(self, dec):
+        # re-encode
+        n91 = numpy.zeros(91, dtype=numpy.int32)
+        n91[0:77] = dec.bits77
+        cksum = crc(n91[0:82], crc14poly)
+        n91[-14:] = cksum
+        n174 = ldpc_encode(n91)
+
+        if False:
+            # verify that encoding is OK
+            two = numpy.array([ 4.6, -4.6 ])
+            ll174 = two[n174]
+            assert ldpc_decode(ll174)[0] == 83
+            assert len(ldpc_decode(ll174)[1]) == 91
+            assert numpy.array_equal(ldpc_decode(ll174)[1], n91)
+            assert check_crc(n174[0:91])
+            assert self.unpack(n174[0:91]).msg == dec.msg
+
+        if False:
+            for i in range(0, 10):
+                sys.stdout.write("%4.1f " % (ll174[i]))
+            sys.stdout.write("\n")
+            for i in range(0, 10):
+                sys.stdout.write("%4.1f " % (n174[i]))
+            sys.stdout.write("\n")
+
+        f = open("ft8bits", "a")
+        for i in range(0, 174):
+            f.write("%d" % (n174[i]))
+        f.write("\n")
+        f.close()
 
     # unpack one of the two 28-bit call fields.
     # new 77-bit scheme.
@@ -3249,15 +4097,15 @@ class FT8:
             return "CQ"
         if x <= 1002:
             # CQ_nnn
-            return "CQ_" + int(x-3)
+            return "CQ_" + str(int(x-3))
         if x <= 532443:
             # CQ_aaaa
             x -= 1003
-            ci1 = x / (27*27*27)
+            ci1 = x // (27*27*27)
             x %= 27*27*27
-            ci2 = x / (27*27)
+            ci2 = x // (27*27)
             x %= 27*27
-            ci3 = x / 27
+            ci3 = x // 27
             x %= 27
             ci4 = x
             aaaa = c4[ci1] + c4[ci2] + c4[ci3] + c4[ci4]
@@ -3404,15 +4252,94 @@ class FT8:
 
             return dec
 
+        if i3 == 3:
+            # ARRL RTTY Round-Up
+
+            #  1 TU
+            # 28 call1
+            # 28 call2
+            #  1 R
+            #  3 RST 529 to 599
+            # 13 state/province/serialnumber
+
+            i = 0
+            tu = a77[i]
+            i += 1
+            call1 = un(a77[i:i+28])
+            i += 28
+            call2 = un(a77[i:i+28])
+            i += 28
+            r = a77[i]
+            i += 1
+            rst = un(a77[i:i+3])
+            i += 3
+            serial = un(a77[i:i+13])
+            i += 13
+
+            call1text = self.unpackcall(call1).strip()
+            call2text = self.unpackcall(call2).strip()
+            rst = 529 + 10*rst
+
+            statei = serial - 8001
+            if serial > 8000 and statei < len(ru_states):
+                serialstr = ru_states[statei]
+            else:
+                serialstr = "%04d" % (serial)
+
+            msg = ""
+            if tu == 1:
+                msg += "TU; "
+            msg += "%s %s " % (call1text, call2text)
+            if r == 1:
+                msg += "R "
+            msg += "%d %s" % (rst, serialstr)
+
+            dec = Decode(msg)
+
+            if len(call1text) > 2 and re.search(r'^[0-9A-Z]*$', call1text) != None:
+                dec.hashcalls.append(call1text)
+            if len(call2text) > 2 and re.search(r'^[0-9A-Z]*$', call2text) != None:
+                dec.hashcalls.append(call2text)
+
+            return dec
+
+        if i3 == 0 and n3 == 1:
+            # 0.1   K1ABC RR73; W9XYZ <KH1/KH7Z> -12   28 28 10 5       71   DXpedition Mode
+
+            i = 0
+            call1 = un(a77[i:i+28])
+            i += 28
+            call2 = un(a77[i:i+28])
+            i += 28
+            x10 = un(a77[i:i+10]) # 10-bit hash of sender's callsign
+            i += 10
+            x5 = un(a77[i:i+5]) # report
+            i += 5
+
+            call1text = self.unpackcall(call1).strip()
+            call2text = self.unpackcall(call2).strip()
+            call3text = "<...>"
+            if x10 in self.hashes10:
+                call3text = "<" + self.hashes10[x10] + ">"
+
+            msg = "%s RR73; %s %s %d" % (call1text,
+                                         call2text,
+                                         call3text,
+                                         2*x5 - 30)
+            dec = Decode(msg)
+
+            return dec
+
         if i3 != 1:
-            # print "unknown i3.n3 %s.%s" % (i3, n3)
-            # print a77
+            if False and (i3 == 0 and n3 in [ 1, 3, 4, 6 ] ):
+                print("unknown i3.n3 %s.%s" % (i3, n3))
+                #print(a77)
             return None
 
         # type 1:
         # 28 call1
         # 1 P/R
-        # 28 cal2
+        # 28 call2
         # 1 P/R
         # 1 ???
         # 15 grid
@@ -3484,7 +4411,7 @@ class FT8Send:
     # 28-bit number's high bits correspond to first call sign character.
     # new FT8.
     # returns -1 if it doesn't know how to encode the call.
-    def packcall(self, call):
+    def packcall(self, call, hashes22=None):
         c1 = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         c2 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         c3 = "0123456789"
@@ -3518,6 +4445,12 @@ class FT8Send:
             call = call + " "
 
         if re.search(r'^[A-Z0-9 ][A-Z0-9 ][0-9][A-Z ][A-Z ][A-Z ]$', call) == None:
+            # previously seen complex call (e.g. VE2/UT3UA) and hash was saved?
+            call = call.strip()
+            h = ihashcall(call, 22)
+            if hashes22 != None and hashes22.get(h) == call:
+                assert h > 0 and h < MAX22
+                return NTOKENS + h
             return -1
 
         # c1 c2 c3 c4 c4 c4
@@ -3589,10 +4522,17 @@ class FT8Send:
 
         return (x, 0)
 
+    # returns 77 bits.
     # on failure, returns an empty array.
-    def pack(self, msg, i3):
-        assert i3 == 1
+    def pack(self, msg, i3, hashes22=None):
+        if i3 == 1:
+            return self.pack_type1(msg, i3, hashes22)
+        if i3 == 3:
+            return self.pack_type3(msg, i3, hashes22)
+        sys.stderr.write("ft8.pack() unknown i3 %d\n" % (i3))
+        return numpy.array([], dtype=numpy.int32)
 
+    def pack_type1(self, msg, i3, hashes22):
         msg = msg.strip()
         msg = re.sub(r'  *', ' ', msg)
         msg = re.sub(r'^CQ DX ', 'CQ_DX ', msg)
@@ -3602,8 +4542,8 @@ class FT8Send:
         # try CALL CALL GRID
         a = msg.split(' ')
         if len(a) == 3:
-            nc1 = self.packcall(a[0])
-            nc2 = self.packcall(a[1])
+            nc1 = self.packcall(a[0], hashes22)
+            nc2 = self.packcall(a[1], hashes22)
             (g, ir) = self.packgrid(a[2], i3)
             if nc1 >= 0 and nc2 >= 0 and g >= 0:
                 a = numpy.concatenate([
@@ -3617,8 +4557,41 @@ class FT8Send:
                     ])
                 return a
 
-        # never finished this -- no text &c.
-        sys.stderr.write("FT8Send.pack(%s) -- cannot parse\n" % (msg))
+        sys.stderr.write("FT8Send.pack_type1(%s) -- cannot parse\n" % (msg))
+        return numpy.array([], dtype=numpy.int32)
+
+    def pack_type3(self, msg, i3, hashes22):
+        msg = msg.strip()
+        msg = re.sub(r'  *', ' ', msg)
+
+        # can only handle e.g. N4TTE AB1HL 539 MA
+
+        m = re.match(r'^([A-Z0-9]+) ([A-Z0-9]+) (5[2-9]9) ([A-Z]+)$', msg)
+        if m != None:
+            call1 = m.group(1)
+            call2 = m.group(2)
+            rst = m.group(3)
+            state = m.group(4)
+
+            nc1 = self.packcall(call1, hashes22)
+            nc2 = self.packcall(call2, hashes22)
+
+            if nc1 >= 0 and nc2 >= 0 and state in ru_states:
+                statei = ru_states.index(state)
+                staten = 8001 + statei
+                rstn = ord(rst[1]) - ord('2')
+                a = numpy.concatenate([
+                    [ 0 ], # TU
+                    bv(nc1, 28),
+                    bv(nc2, 28),
+                    [ 0 ], # R
+                    bv(rstn, 3),
+                    bv(staten, 13),
+                    bv(i3, 3)])
+                assert len(a) == 77
+                return a
+
+        sys.stderr.write("FT8Send.pack_type3(%s) -- cannot parse\n" % (msg))
         return numpy.array([], dtype=numpy.int32)
 
     def testpack(self):
@@ -3628,20 +4601,33 @@ class FT8Send:
             upg = r.unpackgrid(pg, ir, 1)
             if g != upg.strip():
                 print("packgrid oops, wanted %s, got %s" % (g, upg.strip()))
+
+        # ordinary calls.
         for call in [ "AB1HL", "K1JT", "M0TRJ", "KK4BMV", "2E0CIN", "HF9D",
                       "6Y4K", "D4Z", "8P6DR", "ZS2I", "3D2RJ",
                       "WB3D", "S59GCD", "T77C", "4Z5AD", "A45XR", "OJ0V",
                       "6Y6N", "S57V", "3Z0R" ]:
-            # XXX 3XY1T doesn't work
             pc = self.packcall(call)
             upc = r.unpackcall(pc)
             if call != upc.strip():
                 print("packcall oops %s %d %s" % (call, pc, upc))
+
+        # calls that need to be sent as hashes.
+        r.hashes22 = { }
+        for call in [ "3XY4D", "3DA0AY", "P4/K3DMG", "JH0UUY/1", "VE2/UT3UA",
+                      "LZ1354PM" ]:
+            r.hashes22[ihashcall(call, 22)] = call
+            pc = self.packcall(call, r.hashes22)
+            upc = r.unpackcall(pc)
+            if "<" + call + ">" != upc.strip():
+                print("hash packcall oops %s %d %s" % (call, pc, upc))
+
         for msg in [ "AB1HL K1JT FN42", "CQ DX CO3HMR EL82", "KD6HWI PY7VI R-12",
-                     "KD5RBW TU 73", "CQ N5OSK EM25", "PD9BG KG7EZ RRR",
+                     "CQ N5OSK EM25", "PD9BG KG7EZ RRR",
                      "W1JET KE0HQZ 73", "WB3D OM4SX -16", "WA3ETR IZ2QGB RR73",
-                     "BG THX JOE 73"]:
-            pm = self.pack(msg, 1)
+                     "K3DMG AB1HL +06",
+                     "P4/K3DMG AB1HL +06", "3XY4D AB1HL FN42", "JH0UUY/1 AB1HL RR73" ]:
+            pm = self.pack(msg, 1, r.hashes22)
             if len(pm) == 0:
                 print("pack() failed for %s" % (msg))
                 continue
@@ -3650,6 +4636,8 @@ class FT8Send:
                 print("unpack() failed for %s" % (msg))
                 continue
             upm = dec.msg
+            upm = upm.replace('<', ' ')
+            upm = upm.replace('>', ' ')
             upm = re.sub(r'  *', ' ', upm)
             if msg != upm.strip():
                 print("pack oops %s %s %s" % (msg, pm, upm))
@@ -3664,7 +4652,6 @@ class FT8Send:
         a91[0:77] = bits77
         a91[77:91] = cksum
 
-        # LDPC(174,91)
         a174 = ldpc_encode(a91)
 
         a174 = gray_code(a174)
@@ -3765,8 +4752,6 @@ if False:
     sys.exit(1)
 
 if False:
-    # nov 30 2018: works except for KD5RBW TU 73, and BG THX JOE 73
-    # dec 4 2018: works except for above
     s = FT8Send()
     s.testpack()
     sys.exit(1)
@@ -3856,6 +4841,7 @@ def usage():
     sys.stderr.write("       ft8.py -file fff [-chan xxx]\n")
     sys.stderr.write("       ft8.py -bench ft8files/xxx.txt\n")
     sys.stderr.write("       ft8.py -opt ft8files/xxx.txt\n")
+    sys.stderr.write("       ft8.py -cpubench\n")
     # list sound cards
     weakaudio.usage()
     sys.exit(1)
@@ -3907,7 +4893,7 @@ if False:
             if (i % 4) != 0:
                 x *= 1.35
             bins[bin0 + symbols[i]] = x
-            block2 = numpy.fft.irfft(bins)
+            block2 = weakutil.irfft(bins)
             x1[off:off+1920] = block2
         x1 = x1 / numpy.mean(abs(x1))
         weakutil.writewav(x1, "b.wav", 12000)
@@ -3924,6 +4910,72 @@ if False:
     if len(msgs) > 0:
         dec = msgs[0]
 
+    sys.exit(0)
+
+# hz_err in hz, off_err in fraction of a symbol time.
+def test_subtract(hz_err, off_err):
+    s = FT8Send()
+    r = FT8()
+    r.jrate = 3000
+    r.jblock = 480
+    bin_hz = r.jrate / float(r.jblock)
+
+    if False:
+        hz = (bin_hz * 100) + (bin_hz / 3.0)
+        o = numpy.zeros(3)
+        for phase in numpy.arange(0.0, 2*math.pi, 2*math.pi/10):
+            tone = weakutil.costone(r.jrate, hz, r.jblock, phase)
+            a = weakutil.rfft(tone)
+            bin = int(round(hz / bin_hz))
+            aa = numpy.angle(a[bin-1:bin+2])
+            print(aa - o)
+            o = aa
+
+        sys.exit(0)
+
+    base = numpy.zeros(15 * r.jrate)
+
+    base += numpy.random.random(len(base)) - 0.5
+
+    dec = Decode("")
+    dec.start = 3111
+    hz = (bin_hz * 100) + (bin_hz / 3.0)
+    dec.bits77 = numpy.random.randint(0, 2, 77)
+    tones = s.tones(dec.bits77, hz-hz_err, r.jrate)
+    tones *= 3.111
+
+    a = numpy.copy(base)
+    off_err_samples = int(round(off_err * r.jblock))
+    a[dec.start+off_err_samples:dec.start+off_err_samples+len(tones)] += tones
+
+    if False:
+        aa = r.subtract_v5(numpy.copy(a), dec, hz)
+        weakutil.writewav(aa, "v5.wav", r.jrate)
+        score = numpy.sum(numpy.square(aa - base)) / len(base)
+        print("v5 %f" % (score))
+
+    if False:
+        aa = r.subtract_v6(numpy.copy(a), dec, hz)
+        weakutil.writewav(aa, "v6.wav", r.jrate)
+        score = numpy.sum(numpy.square(aa - base)) / len(base)
+        print("v6 %f" % (score))
+
+    if False:
+        aa = r.subtract_v7(numpy.copy(a), dec, hz)
+        weakutil.writewav(aa, "v7.wav", r.jrate)
+        score = numpy.sum(numpy.square(aa - base)) / len(base)
+        print("v7 %f" % (score))
+
+    weakutil.writewav(base, "base.wav", r.jrate)
+    weakutil.writewav(a, "a.wav", r.jrate)
+
+if False:
+    test_subtract(0, 0)
+    test_subtract(0.11, 0)
+    test_subtract(0, 0.123)
+    test_subtract(0, -0.123)
+    test_subtract(0.11, 0.123)
+    test_subtract(0.11, -0.123)
     sys.exit(0)
 
 def set_start_adj(wsjtfile):
@@ -3977,43 +5029,58 @@ def benchmark1(dir, bfiles, verbose):
     crcok = 0 # how many we decoded
     jtscore = 0 # how many we decoded that wsjt-x also decoded
     jtwanted = 0 # how many wsjt-x decoded
-    hints1 = [ "CQ" ]
-    hints2 = [ ]
+    hints = [ Hint("CQ") ]
     heard1 = [ ] # callsigns heard in previous cycle
+    cqs = { } # all CQs ever heard
     hashes22 = { }
     hashes12 = { }
+    hashes10 = { }
+    r = FT8()
+    r.verbose = False
     for bf in bfiles:
         if not bf[0]: # only the short list
             continue
         if verbose:
             print(bf[1])
         filename = dir + "/" + bf[1]
-        r = FT8()
-        r.verbose = False
         r.hashes22 = hashes22
         r.hashes12 = hashes12
+        r.hashes10 = hashes10
         if False:
             r.restrict_hz = [ 1500, 1750 ]
         if False:
             # hints other than CQ are not worthwhile, particularly not since
-            # (when operating) we're only interested in CQ and in replies to us.
-            r.hints1 = hints1
-            r.hints2 = hints2
+            # (when operating) we're only interested in exotic CQ and in replies to us.
+            r.hints = hints
+        if False:
+            # just testing, common misses from ft8-n13/big.txt
+            r.hints = [ Hint("CQ"), Hint("YV6QD"), Hint("YI3WHR"),
+                        Hint("9M2MRS"), Hint("Z36W"),
+                        Hint(call2="IW4BNN"), Hint(call2="OK2BZ"),
+                        Hint(call2="IK4ISR"), Hint(call2="G3PXT") ]
+        if True:
+            # hint CQs previously heard, limited by hz at which last heard.
+            r.hints = [ Hint("CQ") ]
+            for call in cqs.keys():
+                dec = cqs[call]
+                hint = Hint(call1="CQ", call2=call, hz=dec.hz())
+                r.hints.append(hint)
         r.gowav(filename, chan)
         all = r.get_msgs()
         crcok += len(all)
         got = { } # did wsjt-x see this? indexed by msg.
         any_no = False
 
-        # populate 22-bit hashes of non-standard calls for next cycle.
+        # populate hashes of non-standard calls for next cycle.
         for m in all:
             for hc in m.hashcalls:
                 hashes22[ihashcall(hc, 22)] = hc
                 hashes12[ihashcall(hc, 12)] = hc
+                hashes10[ihashcall(hc, 10)] = hc
 
-        # populate hints for next cycle.
-        hints1 = [ "CQ" ]
-        hints2 = [ ]
+        # populate hints for next cycle, using callsigns that
+        # others apparently heard but we did not.
+        hints = [ Hint("CQ") ]
         for m in all:
             txt = m.msg
             txt = txt.strip()
@@ -4026,10 +5093,19 @@ def benchmark1(dir, bfiles, verbose):
             if not (a[0] in heard1):
                 # only calls that were called in this cycle,
                 # and that we didn't hear from in the previous cycle.
-                if not (a[0] in hints2):
-                    hints2.append(a[0])
-            #if not (a[1] in hints1):
-            #    hints1.append(a[1])
+                if not (a[0] in [ h.call2 for h in hints ]):
+                    hints.append(Hint(call2=a[0]))
+            #if not (a[1] in [ h.call1 for h in hints ]):
+            #    hints.append(Hint(call1=a[1]))
+
+        # for hints driven by CQs, add to list of CQs we have heard.
+        for m in all:
+            txt = m.msg
+            txt = txt.strip()
+            txt = re.sub(r'  *', ' ', txt)
+            a = txt.split(" ")
+            if len(a) == 3 and a[0] == "CQ":
+                cqs[a[1]] = m
 
         # populate heard1, for hints.
         heard1 = [ ]
@@ -4046,12 +5122,15 @@ def benchmark1(dir, bfiles, verbose):
                 heard1.append(a[1])
 
         wsa = bf[2].split("\n")
+        this_got = 0
+        this_wanted = 0
         for wsx in wsa:
             # 161245 -21  0.3  538 ~  K3OWX KG5AUW -03
             # 161245   2  0.1  955 ~  KJ1J NS9I -06
             wsx = wsx.strip()
             if wsx != "":
                 jtwanted += 1
+                this_wanted += 1
                 wsx = re.sub(r'  *', ' ', wsx)
                 found = None
                 for dec in all:
@@ -4074,12 +5153,13 @@ def benchmark1(dir, bfiles, verbose):
 
                 if found != None:
                     jtscore += 1
+                    this_got += 1
                     if verbose:
-                        print("yes %4.0f %s (%.1f %.1f) %s" % (float(whz), wa[2], found.hz(), found.dt, wmsg))
+                        print("yes %4.0f %s %s (%.1f %.1f) %s" % (float(whz), wa[2], wa[1], found.hz(), found.dt, wmsg))
                 else:
                     any_no = True
                     if verbose:
-                        print("no  %4.0f %s %s" % (float(whz), wa[2], wmsg))
+                        print("no  %4.0f %s %s %s" % (float(whz), wa[2], wa[1], wmsg))
                 sys.stdout.flush()
         extras = [ ]
         for dec in all:
@@ -4091,39 +5171,84 @@ def benchmark1(dir, bfiles, verbose):
             # emit lines only for files in which we
             # some decodes that wsjt-x got.
             print(bf[2])
+        if False:
+            # per-file scores, to pick out the weakest.
+            print("filescore %s %.2f" % (bf[1], this_got/float(this_wanted)))
+
     if verbose:
         print("score %d (%d of %d)" % (crcok, jtscore, jtwanted))
+
     return [ crcok, jtscore, jtwanted ]
 
 vars = [
-    [ "top_low_order", [ 0, 4, 5, 6, 7, 9, 13, 15, 17 ] ],
-    [ "top_high_order", [ 0, 7, 9, 13, 15, 17, 19 ] ],
+    [ "cheb_ripple_pass", [ 0.01, 0.05, 0.08, 0.1, 0.12, 0.15, 0.2, 0.3, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0 ] ],
+    [ "decimate_order", [ 4, 5, 6, 7, 8, 10, 12, 14, 16 ] ],
+    [ "top_high_order", [ 0, 9, 11, 13, 15, 17, 19, 21, 23, 25 ] ],
+    [ "cheb_atten_stop", [ 30, 35, 40, 45, 47, 50, 53, 55, 60, 65, 70  ] ],
+    [ "cheb_high_minus", [ 70, 60, 50, 40, 30, 20 ] ],
+    [ "cheb_high_plus", [ 120, 110, 100, 90, 80, 70, 60, 50, 40, 30 ] ],
+    [ "nchildren", [ 4, 3, 2, 1 ] ],
+    [ "child_overlap", [ 0, 10, 20, 30, 40, 50, 60 ] ],
+    [ "pass0_tstep", [ 8, 4, 2, 1 ] ],
+    [ "passN_tstep", [ 8, 4, 2, 1 ] ],
+    [ "fine_tstep", [ 16, 8, 4, 2, 1 ] ],
+    [ "pass0_fstep", [ 8, 4, 2, 1 ] ],
+    [ "passN_fstep", [ 8, 4, 2, 1 ] ],
     [ "fine_fstep", [ 8, 4, 2, 1 ] ],
-    [ "fine_tstep", [ 8, 4, 2, 1 ] ],
-    [ "ldpc_iters", [ 10, 11, 12, 13, 15, 18, 20, 22, 25, 30 ] ],
-    [ "coarse_fstep", [ 8, 4, 2, 1 ] ],
-    [ "coarse_tstep", [ 8, 4, 2, 1 ] ],
-    [ "noise_factor", [ 1.0/28, 1.0/14, 1.0/7, 1.0/3.5, 1.0/2, 0.6, 0.7, 0.8 ] ],
-    [ "coarse_no", [ 1, 2, 3, 4 ] ],
-    [ "contrast_weight", [ 0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0, 0 ] ],
-    [ "osd_crc", [ True, False ] ],
-    [ "osd_order", [ -1, 0, 1, 2 ] ],
-    [ "do_subtract", [ 0, 1, 2, 3, 4 ] ],
-    [ "substeps", [ 12, 16, 20, 24, 32 ] ],
+    [ "pass0_frac", [ 0.6, 0.8, 1.0, 1.2, 1.5 ] ],
+    [ "ldpc_iters", [ 13, 17, 20, 25, 30, 40, 50, 70 ] ],
+    [ "no_mul", [ 0.5, 0.6, 0.8, 0.9, 1.0, 1.1, 1.2 ] ],
+    [ "no_add", [  -0.7, -0.5, -0.3, -0.1, 0.0, 0.1, 0.2, 0.3 ] ],
+    [ "yes_mul", [ 0.6, 0.8, 0.9, 1.0, 1.1, 1.2 ] ],
+    [ "yes_add", [ -0.2,  -0.1, 0.0, 0.1, 0.2, 0.3 ] ],
+    [ "snr_overlap", [ -1, 0, 1, 2, 3, 4, 5, 7, 9, 11, 20, 30, 40 ] ],
     [ "subpasses", [ 0, 1, 2, 3 ] ],
+    [ "do_subtract", [ 0, 1, 2, 3, 4 ] ],
+    [ "pass0_hints", [ True, False ] ],
+    [ "use_apriori", [ True, False ] ],
+    [ "start_adj", [ 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6 ] ],
     [ "top_down", [ True, False ] ],
     [ "bottom_slow", [ True, False ] ],
-    [ "bottom_low_order", [ 0, 6, 7, 9, 13 ] ],
-    [ "coarse_tminus", [ 1.3, 1.4, 1.5, 1.6 ] ],
-    [ "coarse_tplus", [ 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0 ] ],
-    [ "start_adj", [ 0.3, 0.4, 0.5, 0.6, 0.7 ] ],
-    [ "weakutil.which_fft", [ "\"numpy\"", "\"scipy\"" ] ],
     [ "down200", [ True, False ] ],
-    [ "already_o", [ 0, 1, 2, 3, 4 ] ],
-    [ "already_f", [ 0, 1, 2, 3, 4 ] ],
+    [ "coarse_no", [ 1, 2, 3, 4 ] ],
+    [ "pass0_tplus", [ 2.4, 2.5, 2.6, 2.7 ] ],
+    [ "osd0_crc", [ True, False ] ],
+    [ "osd_crc", [ True, False ] ],
+    [ "osd_hints", [ True, False ] ],
+    [ "osd_depth", [ -1, 0, 2, 4, 5, 6, 7, 8, 10, 20, 30, 40 ] ],
+    [ "down_cutoff", [ 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65 ] ],
+    [ "pass0_tminus", [ 1.1, 1.5, 1.8, 2.0, 2.2, 2.4, 2.6 ] ],
+    [ "crc_and_83", [ True, False ] ],
+    [ "ldpc_thresh", [ 50, 60, 70, 75, 80, 81, 82, 83 ] ],
+    [ "hint_tol", [ -1, 3, 9, 20 ] ],
+    [ "passN_tplus", [ 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.25, 2.5, 2.75, 3.0 ] ],
+    [ "passN_tminus", [ 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0 ] ],
+    [ "adjust_off_for_sub", [ True, False ] ],
+    [ "adjust_hz_for_sub", [ True, False ] ],
+    [ "weakutil.which_fft", [ "\"numpy\"", "\"scipy\"", "\"fftw\"" ] ],
+    [ "osd_thresh", [ -300, -500, -800, -1000, -1200, -1500, -1800, -2000 ] ],
+    [ "osd_no_snr", [ True, False ] ],
     [ "budget", [ 2, 4, 11 ] ],
-    # [ "phase_gran", [ 200, 100, 50, 25 ] ],
-    # [ "subgap", [ 0.7, 0.8, 0.9, 1.0, 1.2, 1.25, 1.3, 1.4 ] ],
+    # [ "noise_factor", [ 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.2, 1.6, 2.0 ] ],
+    # [ "high_cutoff", [ 0.9, 0.96, 0.98, 1.0, 1.03, 1.05, 1.07, 1.1, 1.15, 1.2 ] ],
+    # [ "strength_div", [ 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 3.5, 4, 4.5, 5, 6, 8, 12, 16, 20 ] ],
+    # [ "contrast_weight", [ 0, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.5 ] ],
+    # [ "phase_gran", [ 200, 150, 125, 100, 75, 50, 25 ] ],
+    # [ "sub_amp_win", [ 0, 1, 2, 3, 4 ] ],
+    # [ "soft1", [ 4, 5, 6, 7 ] ],
+    # [ "soft2", [ 7, 8 ] ],
+    # [ "soft3", [ 3, 4, 5, 6 ] ],
+    # [ "soft4", [ 6, 7, 8 ] ],
+    # [ "low_pass_order", [ 0, 5, 7, 10, 13, 15, 17, 20, 25 ] ],
+    # [ "cheb_cut1", [ 0.46, 0.47, 0.475, 0.48, 0.485, 0.49 ] ],
+    # [ "cheb_cut2", [ 0.55, 0.58, 0.59, 0.60, 0.61, 0.62, 0.63, 0.65 ] ],
+    # [ "snr_wintype", [ "\"bartlett\"", "\"blackman\"", "\"hamming\"", "\"hanning\"", "\"kaiser\"", "\"boxcar\"", "\"cosine\"", "\"tukey\"", "\"triang\"", "\"flattop\"", "\"gaussian\"", "\"nuttall\"", "\"parzen\"" ] ],
+    # [ "real_min_hz", [ 120, 130, 140, 150, 160, 170, 180, 190, 200 ] ],
+    # [ "real_max_hz", [ 2840, 2850, 2860, 2870, 2880, 2890, 2900, 2910, 2920, 2930, 2940, 2950 ] ],
+    # [ "subgap", [ 0.2, 0.4, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.4 ] ],
+    # [ "substeps", [ 5, 7, 8, 9, 10, 12, 14, 16, 18, 20, 30 ] ],
+    # [ "already_o", [ 0, 1, 2, 3, 4 ] ],
+    # [ "already_f", [ 0, 1, 2, 3, 4 ] ],
     # [ "softboost", [ 0, 0.125, 0.25, 0.33, 0.5, 1.0, 1.5, 2.0 ] ],
     ]
 
@@ -4134,18 +5259,22 @@ def printvars():
     return s
 
 def optimize(wsjtfile):
+    global very_first_time
+
     set_start_adj(wsjtfile)
 
     sys.stdout.write("# %s %s\n" % (opt, printvars()))
 
-    # warm up any caches, JIT, &c.
-    r = FT8()
-    r.verbose = False
-    #r.gowav("ft8files/170717_161300.wav", 0)
-    r.gowav("ft8-n3/181205_233000.wav", 0)
-
     for v in vars:
         for val in v[1]:
+            # warm up any caches, JIT, &c.
+            very_first_time = True
+            r = FT8()
+            r.verbose = False
+            #r.gowav("ft8files/170717_161300.wav", 0)
+            r.gowav("ft8-n9/181218_100845.wav", 0)
+            r = None
+
             old = None
             if "." in v[0]:
                 xglob = ""
@@ -4155,6 +5284,7 @@ def optimize(wsjtfile):
             exec("%s%s = %s" % (xglob, v[0], val))
 
             [ crcok, jtscore, jtwanted ] = benchmark(wsjtfile, False)
+
             exec("%s%s = old" % (xglob, v[0]))
             sys.stdout.write("%s=%s : " % (v[0], val))
             sys.stdout.write("%d %d %d\n" % (crcok, jtscore, jtwanted))
@@ -4167,6 +5297,8 @@ opt = None
 
 def main():
     global filename, card, bench, opt, very_first_time
+    global budget
+    do_cpubench = False
     i = 1
     while i < len(sys.argv):
         if sys.argv[i] == "-card":
@@ -4181,8 +5313,30 @@ def main():
         elif sys.argv[i] == "-opt":
             opt = sys.argv[i+1]
             i += 2
+        elif sys.argv[i] == "-cpubench":
+            do_cpubench = True
+            i += 1
         else:
             usage()
+
+    if do_cpubench:
+        # warm up
+        very_first_time = True
+        r = FT8()
+        r.verbose = False
+        r.gowav("ft8-n15/190513_205800.wav", 0)
+        r = None
+
+        very_first_time = True # don't fork
+        budget = 1000 # typically needs 20 or 30 seconds
+        r = FT8()
+        r.verbose = False
+        t0 = time.time()
+        r.gowav("ft8-n15/190513_210715.wav", 0)
+        t1 = time.time()
+        all = r.get_msgs()
+        print("%d decodes, %d ldpc calls, %.1f seconds" % (len(all), r.ldpc_calls, t1 - t0))
+        sys.exit(0)
 
     if False:
         xr = FT8()
@@ -4212,8 +5366,6 @@ def main():
         r.gocard()
     else:
         usage()
-
-weakutil.init_fft([1920,1920//2,1920//4,32])
 
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == '-p':
