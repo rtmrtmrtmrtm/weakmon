@@ -38,6 +38,8 @@ def open(desc):
         ret = R75(dev, 0x4A)
     if type == "r8600":
         ret = R75(dev, 0x96)
+    if type == "ic9700":
+        ret = R75(dev, 0xA2)
     if type == "f8101":
         ret = F8101(dev, 0x8A)
     if type == "ar5000":
@@ -84,7 +86,7 @@ def usage():
     for com in coms:
         sys.stderr.write("  %s\n" % (com))
     sys.stderr.write("radio types for -cat: ")
-    for ty in [ "k3", "rx340", "8711", "sdrip", "sdriq", "r75", "r8500", "r8600", "f8101", "ar5000", "eb200", "sdrplay", "prc138" ]:
+    for ty in [ "k3", "rx340", "8711", "sdrip", "sdriq", "r75", "r8500", "r8600", "ic9700", "f8101", "ar5000", "eb200", "sdrplay", "prc138" ]:
         sys.stderr.write("%s " % (ty))
     sys.stderr.write("\n")
 
@@ -174,6 +176,12 @@ class K3(object):
     def rx(self):
         pass
 
+    def set_mute(self, txhz):
+        pass
+
+    def set_unmute(self):
+        pass
+
 # Ten-Tec RX-340
 class RX340(object):
     def __init__(self, devname):
@@ -241,16 +249,27 @@ class SDRIP(object):
     # does not wait.
     def setf(self, vfo, fr):
         self.sdr.setfreq(fr)
-        if fr < 8000000:
-            self.sdr.setgain(-10)
-        else:
-            self.sdr.setgain(0)
+
+        # now done automatically in sdrip.py
+        #if fr < 4000000: # used to be 8 mhz
+        #    self.sdr.setgain(-10)
+        #else:
+        #    self.sdr.setgain(0)
 
     def set_usb_data(self):
+        sys.stderr.write("set_usb_data\n")
         self.sdr.set_mode("usb")
 
     def set_fm_data(self):
+        sys.stderr.write("set_fm_data\n")
         self.sdr.set_mode("fm")
+
+    # about to transmit on txhz, disconnect the receiver antenna.
+    def set_mute(self, txhz):
+        self.sdr.setfilter(12) # mute
+
+    def set_unmute(self):
+        self.sdr.setfilter(0) # automatic
 
 class SDRIQ(object):
     def __init__(self, devname):
@@ -271,11 +290,13 @@ class SDRIQ(object):
 # Icom IC-R75
 # Icom IC-R8500
 # Icom IC-R8600
+# Icom IC-9700
 class R75(object):
     def __init__(self, devname, civ):
         # ic-r75 CI-V address defaults to 0x5A
         # ic-r8500 CI-V address defaults to 0x4A
         # ic-r8600 CI-V address defaults to 0x96
+        # ic-9700 CI-V address defaults to 0xA2
 
         self.civ = civ
 
@@ -548,7 +569,8 @@ class AR5000(object):
         self.cmd("AC0") # fast AGC
 
 #
-# The PRC-138 knob must be set to RMT.
+# Harris PRC-138 transceiver.
+# The knob must be set to RMT.
 #
 class PRC138(object):
     def __init__(self, devname):
