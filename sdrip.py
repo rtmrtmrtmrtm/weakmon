@@ -115,10 +115,14 @@ class SDRIP:
     self.mode = "usb"
     self.ipaddr = ipaddr
     self.mu = threading.Lock()
+    self.lasthz = 0
 
     self.rate = None
     self.frequency = None
     self.running = False
+
+    self.mhz_overload = { }
+    self.mhz_gain = { }
 
     # 16 or 24
     # only 24 seems useful
@@ -162,20 +166,25 @@ class SDRIP:
     self.cs = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self.cs.connect((self.ipaddr, 50000))
 
+    # only this thread reads from the control TCP socket,
+    # and appends to self.replies.
+    self.replies_mu = threading.Lock()
+    self.replies = [ ]
+    th = threading.Thread(target=lambda : self.drain_ctl())
+    th.daemon = True
+    th.start()
+
+    time.sleep(0.1) # CloudIQ
+
     # tell the SDR-IP where to send UDP packets
     self.setudp(hostport[1])
 
     # boilerplate
     self.setad()
-    self.setfilter()
+    self.setfilter(0)
     self.setgain(0)
     #self.setgain(-20)
 
-    # keep reading the control TCP socket, to drain any
-    # errors, so NetSDR doesn't get upset.
-    th = threading.Thread(target=lambda : self.drain_ctl())
-    th.daemon = True
-    th.start()
 
     # "SDR-IP"
     #print("name: %s" % (self.getitem(0x0001)))
@@ -256,14 +265,19 @@ class SDRIP:
                   #sys.stderr.write("sdrip: pipe write failed\n")
                   os._exit(1)
 
-  # consume unsolicited messages from the NetSDR,
+  # consume and record TCP control messages from the NetSDR,
   # and notice if it goes away.
   def drain_ctl(self):
       try:
           while True:
-              self.getitem(0x0001) # name
-              time.sleep(1)
+              reply = self.real_readreply()
+              if reply != None:
+                  self.replies_mu.acquire()
+                  self.replies.append(reply)
+                  self.replies_mu.release()
       except:
+          print("drain error:", sys.exc_info()[0])
+          sys.stdout.flush()
           pass
 
       sys.stderr.write("sdrip: control connection died\n")
@@ -294,57 +308,84 @@ class SDRIP:
       xlen -= 1
     return [ mtype, item, data ]
 
-  # read tcp control socket until we get a reply
-  # that matches type and item.
-  def readreply(self, mtype, item):
-    while True:
-      reply = self.readctl()
-      if reply == None:
-          # NAK
-          return None
-      if reply[0] == 0 and reply[1] == item:
-        return reply[2]
-      # sys.stderr.write("sdrip: unexpected mtype=%02x item=%04x datalen=%d\n" % (reply[0], reply[1], len(reply[2])))
-      if reply[0] == 1 and reply[1] == 5:
-        # A/D overload
-        # sys.stderr.write("sdrip: unsolicited A/D overload\n")
-        continue
-      if reply[0] != 0:
-        sys.stderr.write("sdrip: readreply oops1 %d %d\n" % (mtype, reply[0]))
-      if reply[1] != item:
-        sys.stderr.write("sdrip: readreply oops2 wanted=%04x got=%04x\n" % (item,
-                                                                   reply[1]))
-      # print("reply: %04x %s" % (reply[1], hx(reply[2])))
-    sys.exit(1)
+  # read one reply from the tcp control socket.
+  def real_readreply(self):
+    reply = self.readctl()
+    if reply == None:
+        # NAK
+        return None
+    # print("reply: %d %04x %s" % (reply[0], reply[1], hx(reply[2])))
+    # reply[0] is mtype (0=set, 1=get)
+    # reply[1] is item
+    # reply[2] is date
+    if reply[0] == 1 and reply[1] == 5:
+      # A/D overload
+      self.got_overload()
+    return reply
+
+  def got_overload(self):
+      mhz = self.lasthz // 1000000
+      self.mhz_overload[mhz] = time.time()
+      ogain = self.mhz_gain.get(mhz, 0)
+      gain = ogain - 10
+      if gain < -30:
+          gain = -30
+      self.mhz_gain[mhz] = gain
+      sys.stderr.write("sdrip: overload mhz=%d %d %d\n" % (mhz, ogain, gain))
+
+  # wait for drain thread to see the reply we want.
+  def readreply(self, item):
+      self.replies_mu.acquire()
+      lasti = len(self.replies) - 10 # XXX
+      lasti = max(0, lasti)
+      self.replies_mu.release()
+
+      while True:
+          self.replies_mu.acquire()
+          while lasti < len(self.replies):
+              reply = self.replies[lasti]
+              lasti = lasti + 1
+              if reply[0] == 0 and reply[1] == item:
+                  self.replies_mu.release()
+                  return reply[2]
+          if len(self.replies) > 20:
+              self.replies = [ ]
+              lasti = 0
+          self.replies_mu.release()
+          time.sleep(0.01)
 
   # send a Request Control Item, wait for and return the result
   def getitem(self, item, extra=None):
-    self.mu.acquire()
-    mtype = 1 # type=request control item
-    buf = b""
-    buf += x8(4) # overall length, lsb
-    buf += x8((mtype << 5) | 0) # 0 is len msb
-    buf += x16(item)
-    if extra != None:
-        buf += extra
-    self.cs.send(buf)
-    ret = self.readreply(mtype, item)
-    self.mu.release()
-    return ret
+    try:
+      self.mu.acquire()
+      mtype = 1 # type=request control item
+      buf = b""
+      buf += x8(4) # overall length, lsb
+      buf += x8((mtype << 5) | 0) # 0 is len msb
+      buf += x16(item)
+      if extra != None:
+          buf += extra
+      self.cs.send(buf)
+      ret = self.readreply(item)
+      return ret
+    finally:
+      self.mu.release()
 
   def setitem(self, item, data):
-    self.mu.acquire()
-    mtype = 0 # set item
-    lx = 4 + len(data)
-    buf = b""
-    buf += x8(lx)
-    buf += x8((mtype << 5) | 0)
-    buf += x16(item)
-    buf += data
-    self.cs.send(buf)
-    ret = self.readreply(mtype, item)
-    self.mu.release()
-    return ret
+    try:
+      self.mu.acquire()
+      mtype = 0 # set item
+      lx = 4 + len(data)
+      buf = b""
+      buf += x8(lx)
+      buf += x8((mtype << 5) | 0)
+      buf += x16(item)
+      buf += data
+      self.cs.send(buf)
+      ret = self.readreply(item)
+      return ret
+    finally:
+      self.mu.release()
 
   def print_setup(self):
       print(("freq 0: %d" % (self.getfreq(0)))) # 32770 if down-converting
@@ -371,6 +412,7 @@ class SDRIP:
     data += bytearray([chan]) # 1=display, 0=actual receiver DDC
     data += x40(hz)
     self.setitem(0x0020, data)
+    self.lasthz = hz
 
   def setfreq(self, hz):
     self.setfreq1(0, hz) # DDC
@@ -382,6 +424,22 @@ class SDRIP:
       time.sleep(0.5)
 
     self.frequency = hz
+
+    # reduce gain if recently saw overload warning
+    mhz = hz // 1000000
+    gain = 0
+    if mhz in self.mhz_gain:
+        if time.time() - self.mhz_overload[mhz] > 5 * 60:
+            self.mhz_overload[mhz] = time.time()
+            self.mhz_gain[mhz] += 10
+            if self.mhz_gain[mhz] > 0:
+                self.mhz_gain[mhz] = 0
+        gain = self.mhz_gain[mhz]
+    if mhz <= 4 and gain > -10:
+        gain = -10
+        self.mhz_gain[mhz] = gain
+        self.mhz_overload[mhz] = time.time()
+    self.setgain(gain)
 
   def getfreq(self, chan):
       x = self.getitem(0x0020, x8(chan))
@@ -457,13 +515,13 @@ class SDRIP:
       return [ dither, gain ]
 
   # RF Filter Select
-  # always sets automatic
   # 0=automatic
   # 11=bypass
-  def setfilter(self):
+  # 12=block everything (mute)
+  def setfilter(self, f):
     data = b""
-    data += x8(0) # ignored
-    data += x8(0) # automatic
+    data += x8(0) # channel
+    data += x8(f)
     self.setitem(0x0044, data)
 
   def getfilter(self, chan):
