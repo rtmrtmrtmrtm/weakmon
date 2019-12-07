@@ -10,6 +10,7 @@
 import weakargs
 import weakutil
 import weakaudio
+import weakcat
 import sys
 import time
 import wave
@@ -723,6 +724,11 @@ def main():
         sys.exit(0)
 
     if args.card != None:
+        if args.cat != None:
+            hz = 15000000
+            cat = weakcat.open(args.cat)
+            cat.setf(0, hz)
+            print("Frequency set to %.1f MHz" % (hz / 1000000.0))
         r = WWV()
         r.opencard(args.card)
         r.gocard()

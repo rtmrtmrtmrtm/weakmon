@@ -419,7 +419,10 @@ class WSPR:
           # should end with the 112th second.
           # wait until we have enough samples through 113th second of minute.
           # 162 symbols, 0.682 sec/symbol, 110.5 seconds total.
-          sec = self.second(samples_time)
+          if samples_time == None:
+              sec = 0
+          else:
+              sec = self.second(samples_time)
           if sec >= 113 and nsamples >= 113*self.cardrate:
               # we have >= 113 seconds of samples, and second of minute is >= 113.
 

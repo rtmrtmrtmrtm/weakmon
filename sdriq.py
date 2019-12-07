@@ -89,6 +89,8 @@ def open(dev):
 
 class SDRIQ:
     def __init__(self, devname):
+        self.running = False
+
         # only one request/response at a time.
         self.w_mu = threading.Lock()
 
@@ -418,6 +420,7 @@ class SDRIQ:
     
     # ask the SDR-IQ to start generating samples.
     def setrun(self, run):
+        self.running = True
         data = [ ]
         data += [ 0x81 ]
         if run:

@@ -342,7 +342,6 @@ class JT65Mon:
 def main():
     parser = weakargs.stdparse('Decode JT65A.')
     parser.add_argument("-band")
-    parser.add_argument("-card2", nargs=2, metavar=('CARD', 'CHAN'))
 
     args = weakargs.parse_args(parser)
         

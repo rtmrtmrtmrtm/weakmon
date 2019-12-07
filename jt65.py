@@ -1842,7 +1842,7 @@ def main():
         usage()
 
 weakutil.which_fft = "numpy" # XXX mysteriously, fftw doesn't work for jt65
-weakutil.init_fft([2048])
+weakutil.fft_sizes([2048])
 
 if __name__ == '__main__':
     if False:

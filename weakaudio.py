@@ -1,10 +1,7 @@
 #
-# get at sound cards on both Mac and FreeBSD.
-# Mac wants pyaudio; FreeBSD wants ossaudiodev.
+# get at sound cards on both Mac and FreeBSD,
+# using pyaudio / portaudio.
 # 
-# pyaudio maybe should work on FreeBSD, but various
-# things go wrong.
-#
 
 import sys
 import numpy
@@ -52,15 +49,15 @@ def pya():
     import pyaudio
     if global_pya == None:
         # suppress Jack and ALSA error messages on Linux.
-        nullfd = os.open("/dev/null", 1)
-        oerr = os.dup(2)
-        os.dup2(nullfd, 2)
+        #nullfd = os.open("/dev/null", 1)
+        #oerr = os.dup(2)
+        #os.dup2(nullfd, 2)
 
         global_pya = pyaudio.PyAudio()
 
-        os.dup2(oerr, 2)
-        os.close(oerr)
-        os.close(nullfd)
+        #os.dup2(oerr, 2)
+        #os.close(oerr)
+        #os.close(nullfd)
     return global_pya
 
 # find the lowest supported input rate >= rate.
@@ -139,6 +136,9 @@ class Stream:
         self.card = card
         self.chan = chan
 
+        # UNIX time of audio stream time zero.
+        self.t0 = None
+
         if rate == None:
             rate = pya_input_rate(card, 8000)
 
@@ -158,12 +158,20 @@ class Stream:
 
         self.resampler = weakutil.Resampler(self.cardrate, self.rate)
 
+        # rate at which len(self.raw_read()) increases.
+        self.rawrate = self.cardrate
+
     # returns [ buf, tm ]
     # where tm is UNIX seconds of the last sample.
     # non-blocking.
     # reads from a pipe from pya_dev2pipe in the pya sub-process.
     # XXX won't work for oss.
     def read(self):
+        [ buf1, tm ] = self.raw_read()
+        buf2 = self.postprocess(buf1)
+        return [ buf2, tm ]
+
+    def raw_read(self):
         bufs = [ ]
         end_time = self.last_end_time
         while self.rpipe.poll():
@@ -177,12 +185,14 @@ class Stream:
         else:
             buf = numpy.array([])
 
-        if len(buf) > 0:
-            buf = self.resampler.resample(buf)
-
         self.last_end_time = end_time
 
         return [ buf, end_time ]
+
+    def postprocess(self, buf):
+        if len(buf) > 0:
+            buf = self.resampler.resample(buf)
+        return buf
 
     def junklog(self, msg):
       msg1 = "[%d, %d] %s\n" % (self.card, self.chan, msg)
@@ -199,8 +209,7 @@ class Stream:
             self.junklog("pya_callback status %d\n" % (status))
 
         pcm = numpy.fromstring(in_data, dtype=numpy.int16)
-        if self.chan == 1:
-            pcm = pcm[self.chan::2]
+        pcm = pcm[self.chan::self.chans]
 
         assert frame_count == len(pcm)
 
@@ -210,6 +219,8 @@ class Stream:
         adc_end = adc_time + (len(pcm) / float(self.cardrate))
 
         if self.last_adc_end != None:
+            if adc_end < self.last_adc_end or adc_end > self.last_adc_end + 5:
+                self.junklog("pya last_adc_end %s adc_end %s" % (self.last_adc_end, adc_end))
             expected = (adc_end - self.last_adc_end) * float(self.cardrate)
             expected = int(round(expected))
             shortfall = expected - len(pcm)
@@ -220,12 +231,18 @@ class Stream:
                     
         self.last_adc_end = adc_end
 
-        # translate time of last sample to UNIX time
-        ut = time.time()
-        if self.pya_strm == None:
-            return ( None, pyaudio.paContinue )
-        st = self.pya_strm.get_time()
-        unix_end = (adc_end - st) + ut
+        # set up to convert from stream time to UNIX time.
+        # pya_strm.get_time() returns the UNIX time corresponding
+        # to the current audio stream time. it's PortAudio's Pa_GetStreamTime().
+        if self.t0 == None:
+            if self.pya_strm == None:
+                return ( None, pyaudio.paContinue )
+            ut = time.time()
+            st = self.pya_strm.get_time()
+            self.t0 = ut - st
+
+        # translate time of last sample to UNIX time.
+        unix_end = adc_end + self.t0
 
         self.cardlock.acquire()
         self.cardbufs.append([ pcm, unix_end ])
@@ -252,15 +269,21 @@ class Stream:
 
         rpipe.close()
 
-        # only ask for 2 channels if we want channel 1,
-        # since some sound cards are mono.
-        chans = self.chan + 1
+        if "freebsd" in sys.platform:
+          # always ask for 2 channels, since on FreeBSD if you
+          # open left with chans=1 and right with chans=2 you
+          # get mixing.
+          self.chans = 2
+        else:
+          # but needs to be 1 for RigBlaster on Linux.
+          self.chans = 1
+        assert self.chan < self.chans
 
         # perhaps this controls how often the callback is called.
         # too big and ft8.py's read() is delayed long enough to
         # cut into FT8 decoding time. too small and apparently the
         # callback thread can't keep up.
-        bufsize = int(self.cardrate / 4)
+        bufsize = int(self.cardrate / 8) # was 4
 
         # pya.open in this sub-process so that pya starts the callback thread
         # here too.
@@ -268,7 +291,7 @@ class Stream:
         self.pya_strm = None
         self.pya_strm = xpya.open(format=pyaudio.paInt16,
                                    input_device_index=self.card,
-                                   channels=chans,
+                                   channels=self.chans,
                                    rate=self.cardrate,
                                    frames_per_buffer=bufsize,
                                    stream_callback=self.pya_callback,
@@ -291,7 +314,7 @@ class Stream:
                     except:
                         os._exit(1)
             else:
-                time.sleep(0.1)
+                time.sleep(0.05)
             
 
     def oss_open(self):
@@ -318,7 +341,7 @@ class Stream:
             buf = self.oss.read(8192)
             assert len(buf) > 0
             both = numpy.fromstring(buf, dtype=numpy.int16)
-            got = both[self.chan::2]
+            got = both[self.chan::self.chans]
 
             self.cardlock.acquire()
             self.cardbufs.append(got)
@@ -352,7 +375,7 @@ class SDRIP:
         # now weakcat.SDRIP.read() calls setrun().
         #self.sdr.setrun()
 
-        self.starttime = time.time() # for faking a sample clock
+        self.starttime = None # for faking a sample clock
         self.cardcount = 0 # for faking a sample clock
 
         self.bufbuf = [ ]
@@ -360,6 +383,9 @@ class SDRIP:
         self.th = threading.Thread(target=lambda : self.sdr_thread())
         self.th.daemon = True
         self.th.start()
+
+        # rate at which len(self.raw_read()) increases.
+        self.rawrate = self.sdrrate
 
     def junklog(self, msg):
       msg1 = "[%s] %s\n" % (self.ip, msg)
@@ -371,6 +397,11 @@ class SDRIP:
     # returns [ buf, tm ]
     # where tm is UNIX seconds of the last sample.
     def read(self):
+        [ buf1, tm ] = self.raw_read()
+        buf2 = self.postprocess(buf1)
+        return [ buf2, tm ]
+
+    def raw_read(self):
         # delay setrun() until the last moment, so that
         # all other parameters have likely been set.
         if self.sdr.running == False:
@@ -382,14 +413,22 @@ class SDRIP:
         self.bufbuf = [ ]
         self.cardlock.release()
 
-        buf_time = self.starttime + cardcount / float(self.sdrrate)
+        if self.starttime != None:
+            buf_time = self.starttime + cardcount / float(self.sdrrate)
+        else:
+            buf_time = time.time() # XXX
 
         if len(bufbuf) == 0:
             return [ numpy.array([]), buf_time ]
 
         buf1 = numpy.concatenate(bufbuf)
 
-        # XXX maybe should be moved to sdrip.py?
+        return [ buf1, buf_time ]
+
+    def postprocess(self, buf1):
+        if len(buf1) == 0:
+            return numpy.array([])
+
         if self.sdr.mode == "usb":
             buf2 = weakutil.iq2usb(buf1) # I/Q -> USB
         elif self.sdr.mode == "fm":
@@ -397,14 +436,12 @@ class SDRIP:
         else:
             sys.stderr.write("weakaudio: SDRIP unknown mode %s\n" % (self.sdr.mode))
             sys.exit(1)
-
+        
         buf3 = self.resampler.resample(buf2)
-        buf4 = buf3.astype(numpy.float32) # save some space.
 
-        return [ buf4, buf_time ]
+        return buf3
 
     def sdr_thread(self):
-        self.starttime = time.time()
 
         while True:
             # read pipe from sub-process.
@@ -413,6 +450,8 @@ class SDRIP:
             self.cardlock.acquire()
             self.bufbuf.append(got)
             self.cardcount += len(got)
+            if self.starttime == None:
+                self.starttime = time.time()
             self.cardlock.release()
 
     # print levels, to help me adjust volume control.
@@ -442,15 +481,24 @@ class SDRIQ:
         self.sdr.setrate(self.sdrrate)
         self.sdr.setgain(0)
         self.sdr.setifgain(18) # I don't know how to set this!
-        self.sdr.setrun(True)
 
         self.th = threading.Thread(target=lambda : self.sdr_thread())
         self.th.daemon = True
         self.th.start()
 
+        self.rawrate = self.sdrrate
+
     # returns [ buf, tm ]
     # where tm is UNIX seconds of the last sample.
     def read(self):
+        [ buf1, tm ] = self.raw_read()
+        buf2 = self.postprocess(buf1)
+        return [ buf2, tm ]
+
+    def raw_read(self):
+        if self.sdr.running == False:
+            self.sdr.setrun(True)
+
         self.cardlock.acquire()
         bufbuf = self.bufbuf
         cardcount = self.cardcount
@@ -463,7 +511,14 @@ class SDRIQ:
             return [ numpy.array([]), buf_time ]
 
         buf = numpy.concatenate(bufbuf)
-        buf = weakutil.iq2usb(buf) # I/Q -> USB
+
+        return [ buf, buf_time ]
+
+    def postprocess(self, buf1):
+        if len(buf1) == 0:
+            return numpy.array([])
+
+        buf = weakutil.iq2usb(buf1) # I/Q -> USB
 
         buf = self.resampler.resample(buf)
 
@@ -473,7 +528,7 @@ class SDRIQ:
         # so application doesn't think the SDR-IQ is clipping.
         buf = buf / 10.0
 
-        return [ buf, buf_time ]
+        return buf
 
     def sdr_thread(self):
         self.starttime = time.time()

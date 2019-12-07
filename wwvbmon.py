@@ -103,7 +103,7 @@ class WWVB:
     self.rate = self.wav.getframerate()
     # for guess1() / weakutil.freq_from_fft().
     weakutil.init_freq_from_fft(59 * self.rate)
-    weakutil.init_fft([ 59 * self.rate ])
+    weakutil.fft_sizes([ 59 * self.rate ])
 
   def readwav(self, chan):
     z = self.wav.readframes(1024)
@@ -140,7 +140,7 @@ class WWVB:
       self.audio = weakaudio.new(desc, self.rate)
       # for guess1() / weakutil.freq_from_fft().
       weakutil.init_freq_from_fft(59 * self.rate)
-      weakutil.init_fft([ 59 * self.rate ])
+      weakutil.fft_sizes([ 59 * self.rate ])
 
   def gocard(self):
       while True:
