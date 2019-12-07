@@ -30,6 +30,8 @@ AMATEUR RADIO PREFIXES
 3D2TS 	Fiji
 3D6 	Swaziland
 3DA0 	Swaziland
+3E 	Panama
+3F 	Panama
 3G 	Chile
 3V 	Tunisia
 3W 	Vietnam
@@ -72,9 +74,12 @@ AMATEUR RADIO PREFIXES
 4R 	Sri Lanka
 4S 	Sri Lanka
 4T 	Peru
-4U 	I.T.U. Geneva
-4U 	U.N. N.Y.
-4U1VIC Vienna International Congress Center.
+4U 	United Nations
+4U1VIC  Vienna International Congress Center.
+4U1ITU  ITU Geneva
+4U1WB   World Bank
+4U1UN   UN NYC
+4U1SCI  UNESCO
 4V 	Haiti
 4W 	Yemen
 4X	Israel
@@ -207,16 +212,21 @@ AH0 	Mariana Is
 AH0U    United States
 AH1 	Baker Howland
 AH2 	Guam
+AH2O 	United States
 AH3 	Johnston Is
 AH4 	Midway Is
 AH5 	Palmyra Is
 AH5K 	Kingman Reef
 AH6 	Hawaii
 AH6HR   United States
+AH6FF   United States
+AH6FX   United States
 AH7K 	Kure Is
 AH8 	American Samoa
 AH9 	Wake Is
 AL 	Alaska
+AL7MH   United States
+AL0A    United States
 AM 	Spain
 AM6 	Balearic Is
 AM8 	Canary Is
@@ -378,6 +388,7 @@ DR      Germany
 ------------------------------------------------------
 DS 	South Korea
 DT 	South Korea
+DT8A    South Shetland Islands
 DU 	Philippines
 DV 	Philippines
 DX 	Philippines
@@ -385,7 +396,8 @@ DY 	Philippines
 DZ 	Philippines
 E2 	Thailand
 E3 	Eritrea
-E4      Palestine (As of Oct. 1, 1999)
+E4      Palestine
+E5      Cook Islands
 E7 	Bosnia Herzegovina
 EA 	Spain
 EA6 	Balearic Is
@@ -481,8 +493,7 @@ FV 	France
 FW 	Wallis Is
 FY 	French Guiana
 G 	England
-GB 	Special Event Stations anywhere in the UK,
-        Channel Is or Isle of Man. (Not Just England)
+GB 	England
 GC      Wales (Clubs)
 GD 	Isle of Man
 GH      Jersey (Clubs)
@@ -499,7 +510,7 @@ GX 	England (Clubs)
 H2 	Cyprus
 H3 	Panama
 H4 	Solomon Is
-H5 	So Africa
+H5 	South Africa
 H6	Nicaragua
 H7 	Nicaragua
 H8 	Panama
@@ -516,6 +527,8 @@ HF 	Poland
 HF0 	So Shetland
 HF0F 	Poland
 HF0S 	Poland
+HF0DKI 	Poland
+HF0PCK 	Poland
 HG 	Hungary
 HH 	Haiti
 HI 	Dominican Rep
@@ -616,6 +629,9 @@ KG6DX 	Guam
 KH0 	Mariana Is
 KH1 	Baker Howland
 KH2 	Guam
+KH2SR 	United States
+KH2GM 	United States
+KH2TJ 	United States
 KH3 	Johnston Is
 KH4 	Midway Is
 KH5 	Palmyra Is
@@ -625,10 +641,17 @@ KH6IDF  United States
 KH7 	Kure Is
 KH7K 	Kure Is
 KH7C 	Hawaii
+KH7XS 	Hawaii
 KH8 	American Samoa
 KH9 	Wake Is
 KL 	Alaska
+KL0MP   United States
+KL3MO   United States
 KL7SK   United States
+KL7QW   United States
+KL1NK   United States
+KL4DD   United States
+KL1T    United States
 KP1 	Navassa Is
 KP2 	Virgin Is
 KP3 	Puerto Rico
@@ -693,13 +716,15 @@ NH4 	Midway Is
 NH5 	Palmyra Is
 NH5K 	Kingman Reef
 NH6 	Hawaii
-NH6 	Hawaii
+NH6T	United States
 NH7K 	Kure Is
 NH8 	American Samoa
 NH9 	Wake Is
 NL 	Alaska
+NL5L 	United States
 NP1 	Navassa Is
 NP2 	Virgin Is
+NP2C 	United States
 NP3 	Puerto Rico
 NP4 	Puerto Rico
 NP5 	Desecheo Is
@@ -716,6 +741,7 @@ OH 	Finland
 OH0 	Aland Is
 OH0M 	Market Reef
 OI 	Finland
+OJ 	Finland
 OJ0 	Market Reef
 OK 	Czech Republic
 OL 	Czech Republic
@@ -727,6 +753,7 @@ OQ 	Belgium
 OR 	Belgium
 OS 	Belgium
 OT 	Belgium
+OU 	Denmark
 OV 	Denmark
 OX 	Greenland
 OY 	Faroe Is
@@ -830,309 +857,319 @@ PZ 	Suriname
  Amateur callsign system in Russia -- Geographical List of Russian Prefixes,
 Oblasts
 R0 	Asiatic Russia
-R1 	European Russia
+R1 	Russia
 R1AN 	Antarctica
 R1FJ 	Franz Jo Land
 R1MV 	Malyj Vysotskij
 R2      Russia
 R2F	Kaliningrad
 R2K	Kaliningrad
-R3 	European Russia
-R4 	European Russia
-R5 	European Russia
-R6 	European Russia
+R3 	Russia
+R4 	Russia
+R5 	Russia
+R6 	Russia
 R7 	Russia
 R8 	Asiatic Russia
 R9 	Asiatic Russia
 R9CQ 	Russia
+R9WG 	Russia
+R9XM 	Russia
+R9XU 	Russia
+R9YW 	Russia
 RA0 	Asiatic Russia
-RA1 	European Russia
+RA1 	Russia
 RA2F	Kaliningrad
 RA2K	Kaliningrad
-RA3 	European Russia
-RA4 	European Russia
-RA5 	European Russia
-RA6 	European Russia
+RA2FAO	Russia
+RA3 	Russia
+RA4 	Russia
+RA5 	Russia
+RA6 	Russia
 RA7 	Russia
 RA8 	Asiatic Russia
 RA9 	Asiatic Russia
 RB0 	Asiatic Russia
-RB1 	European Russia
+RB1 	Russia
 RB2F	Kaliningrad
 RB2K	Kaliningrad
-RB3 	European Russia
-RB4 	European Russia
-RB5 	European Russia
-RB6 	European Russia
+RB3 	Russia
+RB4 	Russia
+RB5 	Russia
+RB6 	Russia
 RB7 	Russia
 RB8 	Asiatic Russia
 RB9 	Asiatic Russia
 RC0 	Asiatic Russia
-RC1 	European Russia
+RC1 	Russia
 RC2F	Kaliningrad
 RC2K	Kaliningrad
 RC2P	Russia
-RC3 	European Russia
-RC4 	European Russia
-RC5 	European Russia
-RC6 	European Russia
+RC3 	Russia
+RC4 	Russia
+RC5 	Russia
+RC6 	Russia
 RC7 	Russia
 RC8 	Asiatic Russia
 RC9 	Asiatic Russia
 RD0 	Asiatic Russia
-RD1 	European Russia
+RD1 	Russia
 RD2F    Kaliningrad
 RD2K	Kaliningrad
-RD3 	European Russia
-RD4 	European Russia
-RD5 	European Russia
-RD6 	European Russia
+RD3 	Russia
+RD4 	Russia
+RD5 	Russia
+RD6 	Russia
 RD7 	Russia
 RD8 	Asiatic Russia
 RD9 	Asiatic Russia
 RE0 	Asiatic Russia
-RE1 	European Russia
+RE1 	Russia
 RE2F	Kaliningrad
 RE2K	Kaliningrad
-RE3 	European Russia
-RE4 	European Russia
-RE5 	European Russia
-RE6 	European Russia
+RE3 	Russia
+RE4 	Russia
+RE5 	Russia
+RE6 	Russia
 RE7 	Russia
 RE8 	Asiatic Russia
 RE9 	Asiatic Russia
 RF0 	Asiatic Russia
-RF1 	European Russia
+RF1 	Russia
 RF2F	Kaliningrad
 RF2K	Kaliningrad
-RF3 	European Russia
-RF4 	European Russia
-RF5 	European Russia
-RF6 	European Russia
+RF3 	Russia
+RF4 	Russia
+RF5 	Russia
+RF6 	Russia
 RF7 	Russia
 RF8 	Asiatic Russia
 RF9 	Asiatic Russia
-RG1 	European Russia
+RG1 	Russia
+RG2 	Russia
 RG2F	Kaliningrad
 RG2K	Kaliningrad
-RG3 	European Russia
-RG4 	European Russia
-RG5 	European Russia
-RG6 	European Russia
+RG3 	Russia
+RG4 	Russia
+RG5 	Russia
+RG6 	Russia
 RG7 	Russia
 RG8 	Asiatic Russia
 RG9 	Asiatic Russia
 RH0 	Asiatic Russia
-RH1 	European Russia
+RH1 	Russia
 RH2F	Kaliningrad
 RH2K	Kaliningrad
-RH3 	European Russia
-RH4 	European Russia
-RH5 	European Russia
-RH6 	European Russia
+RH3 	Russia
+RH4 	Russia
+RH5 	Russia
+RH6 	Russia
 RH7 	Russia
 RH8 	Asiatic Russia
 RH9 	Asiatic Russia
 RI0 	Asiatic Russia
-RI1 	European Russia
+RI1 	Russia
 RI1AN   Antarctica
 RI1ANO  South Shetland Islands
 RI2F	Kaliningrad
 RI2K	Kaliningrad
-RI3 	European Russia
-RI4 	European Russia
-RI5 	European Russia
-RI6 	European Russia
+RI3 	Russia
+RI4 	Russia
+RI5 	Russia
+RI6 	Russia
 RI7 	Russia
 RI8 	Asiatic Russia
 RI9 	Asiatic Russia
 RJ0 	Asiatic Russia
-RJ1 	European Russia
+RJ1 	Russia
 RJ2F	Kaliningrad
 RJ2K	Kaliningrad
-RJ3 	European Russia
-RJ4 	European Russia
-RJ5 	European Russia
-RJ6 	European Russia
+RJ3 	Russia
+RJ4 	Russia
+RJ5 	Russia
+RJ6 	Russia
 RJ7 	Russia
 RJ8 	Asiatic Russia
 RJ9 	Asiatic Russia
 RK0 	Asiatic Russia
-RK1 	European Russia
+RK1 	Russia
 RK2F	Kaliningrad
 RK2K	Kaliningrad
 RK2Y	Russia
-RK3 	European Russia
-RK4 	European Russia
-RK5 	European Russia
-RK6 	European Russia
+RK2M	Russia
+RK3 	Russia
+RK4 	Russia
+RK5 	Russia
+RK6 	Russia
 RK7 	Russia
 RK8 	Asiatic Russia
 RK9 	Asiatic Russia
 RL0 	Asiatic Russia
-RL1 	European Russia
+RL1 	Russia
+RL2 	Russia
 RL2F	Kaliningrad
 RL2K	Kaliningrad
-RL3 	European Russia
-RL4 	European Russia
-RL5 	European Russia
-RL6 	European Russia
+RL3 	Russia
+RL4 	Russia
+RL5 	Russia
+RL6 	Russia
 RL7 	Russia
 RL8 	Asiatic Russia
 RL9 	Asiatic Russia
 RM0 	Asiatic Russia
-RM1 	European Russia
-RM2 	European Russia
+RM1 	Russia
+RM2 	Russia
 RM2F	Kaliningrad
 RM2K	Kaliningrad
-RM3 	European Russia
-RM4 	European Russia
-RM5 	European Russia
-RM6 	European Russia
+RM3 	Russia
+RM4 	Russia
+RM5 	Russia
+RM6 	Russia
 RM7 	Russia
 RM8 	Asiatic Russia
 RM9 	Asiatic Russia
 RN0 	Asiatic Russia
-RN1 	European Russia
-RN2 	European Russia
+RN1 	Russia
+RN2 	Russia
 RN2F	Kaliningrad
 RN2K	Kaliningrad
-RN3 	European Russia
-RN4 	European Russia
-RN5 	European Russia
-RN6 	European Russia
+RN3 	Russia
+RN4 	Russia
+RN5 	Russia
+RN6 	Russia
 RN7 	Russia
 RN8 	Asiatic Russia
 RN9 	Asiatic Russia
 RO0 	Asiatic Russia
-RO1 	European Russia
+RO1 	Russia
 RO2F	Kaliningrad
 RO2K	Kaliningrad
-RO3 	European Russia
-RO4 	European Russia
-RO5 	European Russia
-RO6 	European Russia
+RO3 	Russia
+RO4 	Russia
+RO5 	Russia
+RO6 	Russia
 RO7 	Russia
 RO8 	Asiatic Russia
 RO9 	Asiatic Russia
 RP0 	Asiatic Russia
-RP1 	European Russia
+RP1 	Russia
 RP2F	Kaliningrad
 RP2K	Kaliningrad
-RP3 	European Russia
-RP4 	European Russia
-RP5 	European Russia
-RP6 	European Russia
+RP3 	Russia
+RP4 	Russia
+RP5 	Russia
+RP6 	Russia
 RP7 	Russia
 RP8 	Asiatic Russia
 RP9 	Asiatic Russia
 RQ0 	Asiatic Russia
-RQ1 	European Russia
+RQ1 	Russia
 RQ2F	Kaliningrad
 RQ2K	Kaliningrad
-RQ3 	European Russia
-RQ4 	European Russia
-RQ5 	European Russia
-RQ6 	European Russia
+RQ3 	Russia
+RQ4 	Russia
+RQ5 	Russia
+RQ6 	Russia
 RQ7 	Russia
 RQ8 	Asiatic Russia
 RQ9 	Asiatic Russia
 RR0 	Asiatic Russia
-RR1 	European Russia
+RR1 	Russia
 RR2F	Kaliningrad
 RR2K	Kaliningrad
-RR3 	European Russia
-RR4 	European Russia
-RR5 	European Russia
-RR6 	European Russia
+RR3 	Russia
+RR4 	Russia
+RR5 	Russia
+RR6 	Russia
 RR7 	Russia
 RR8 	Asiatic Russia
 RR9 	Asiatic Russia
 RS0 	Asiatic Russia
-RS1 	European Russia
+RS1 	Russia
 RS2F	Kaliningrad
 RS2K	Kaliningrad
-RS3     European Russia
-RS4     European Russia
-RS5 	European Russia
-RS6 	European Russia
+RS3     Russia
+RS4     Russia
+RS5 	Russia
+RS6 	Russia
 RS7 	Russia
 RS8 	Asiatic Russia
 RS9 	Asiatic Russia
 RT0 	Asiatic Russia
-RT1 	European Russia
+RT1 	Russia
+RT2 	Russia
 RT2F	Kaliningrad
 RT2K	Kaliningrad
-RT3 	European Russia
-RT4 	European Russia
-RT5 	European Russia
-RT6 	European Russia
+RT3 	Russia
+RT4 	Russia
+RT5 	Russia
+RT6 	Russia
 RT7 	Russia
 RT8 	Asiatic Russia
 RT9 	Asiatic Russia
 RU0 	Asiatic Russia
-RU1 	European Russia
+RU1 	Russia
 RU2F	Kaliningrad
 RU2K	Kaliningrad
-RU3 	European Russia
-RU4 	European Russia
-RU5 	European Russia
-RU6 	European Russia
+RU3 	Russia
+RU4 	Russia
+RU5 	Russia
+RU6 	Russia
 RU7 	Russia
 RU8 	Asiatic Russia
 RU9 	Asiatic Russia
 RV0 	Asiatic Russia
-RV1 	European Russia
+RV1 	Russia
 RV2F	Kaliningrad
 RV2K	Kaliningrad
-RV3 	European Russia
-RV4 	European Russia
-RV5 	European Russia
-RV6 	European Russia
+RV3 	Russia
+RV4 	Russia
+RV5 	Russia
+RV6 	Russia
 RV7 	Russia
 RV8 	Asiatic Russia
 RV9 	Asiatic Russia
 RW0 	Asiatic Russia
-RW1 	European Russia
+RW1 	Russia
 RW2F	Kaliningrad
 RW2K	Kaliningrad
-RW3 	European Russia
-RW4 	European Russia
-RW5 	European Russia
-RW6 	European Russia
+RW3 	Russia
+RW4 	Russia
+RW5 	Russia
+RW6 	Russia
 RW7 	Russia
 RW8 	Asiatic Russia
 RW9 	Asiatic Russia
 RX0 	Asiatic Russia
-RX1 	European Russia
+RX1 	Russia
 RX2F	Kaliningrad
 RX2K	Kaliningrad
-RX3 	European Russia
-RX4 	European Russia
-RX5 	European Russia
-RX6 	European Russia
+RX3 	Russia
+RX4 	Russia
+RX5 	Russia
+RX6 	Russia
 RX7 	Russia
 RX8 	Asiatic Russia
 RX9 	Asiatic Russia
 RY0 	Asiatic Russia
-RY1 	European Russia
+RY1 	Russia
+RY2 	Russia
 RY2F	Kaliningrad
 RY2K	Kaliningrad
-RY3 	European Russia
-RY4 	European Russia
-RY5 	European Russia
-RY6 	European Russia
+RY3 	Russia
+RY4 	Russia
+RY5 	Russia
+RY6 	Russia
 RY7 	Russia
 RY8 	Asiatic Russia
 RY9 	Asiatic Russia
 RZ0 	Asiatic Russia
-RZ1 	European Russia
+RZ1 	Russia
 RZ2F	Kaliningrad
 RZ2K	Kaliningrad
-RZ3 	European Russia
-RZ4 	European Russia
-RZ5 	European Russia
-RZ6 	European Russia
+RZ3 	Russia
+RZ4 	Russia
+RZ5 	Russia
+RZ6 	Russia
 RZ7 	Russia
 RZ8 	Asiatic Russia
 RZ9 	Asiatic Russia
@@ -1145,6 +1182,7 @@ S7 	Seychelles
 S8 	South Africa
 S9 	Sao Tome
 SA 	Sweden
+SB 	Sweden
 SE 	Sweden
 SG 	Sweden
 SI 	Sweden
@@ -1161,6 +1199,10 @@ ST0 	Southern Sudan
 SU 	Egypt
 SV 	Greece
 SV/A 	Mount Athos
+SV2A 	Mount Athos
+SV2RSG 	Mount Athos
+SV2AAS  Greece
+SV2AEL  Greece
 SV5 	Dodecanese
 SV9 	Crete
 SW 	Greece
@@ -1170,6 +1212,11 @@ SX 	Greece
 SX5 	Dodecanese
 SX9 	Crete
 SY 	Mount Athos
+SY1BFI  Greece
+SY1BRU  Greece
+SY1AWX  Greece
+SY1CTM  Greece
+SY9CGZ  Greece
 T1      Transnistria
 T2 	Tuvalu
 T3 	Banaba Is
@@ -1184,10 +1231,12 @@ T4 	Cuba
 T5 	Somalia
 T6 	Afghanistan
 T7 	San Marino
-T8 	So Africa
-T88     Belau (Palau)(KC6)
+T8 	South Africa
+T88     Palau
 T9 	Bosnia Herzegovina
 TA 	Turkey
+TB 	Turkey
+TC  	Turkey
 TD 	Guatemala
 TE 	Costa Rica
 TF 	Iceland
@@ -1218,13 +1267,13 @@ TZ 	Mali
  Territories, Prefixes, Suffixes and Zones of the Former USSR -- A Must See
  Russia Prefixes, Suffixes and Zones -- A Must See
 U0 	Asiatic Russia
-U1 	European Russia
+U1 	Russia
 U2F	Kaliningrad
 U2K	Kaliningrad
-U3 	European Russia
-U4 	European Russia
+U3 	Russia
+U4 	Russia
 U5 	Ukraine
-U6 	European Russia
+U6 	Russia
 U8 	Asiatic Russia
 U9 	Asiatic Russia
 UA      Russia
@@ -1234,85 +1283,87 @@ UA2K	Kaliningrad
 UA9 	Asiatic Russia
 UA9FFV 	Russia
 UA9FBC 	Russia
+UA9FIT 	Russia
+UA9FGJ 	Russia
 UB0 	Asiatic Russia
-UB1 	European Russia
+UB1 	Russia
 UB2F	Kaliningrad
 UB2K	Kaliningrad
-UB3 	European Russia
-UB4 	European Russia
-UB5 	European Russia
-UB6 	European Russia
+UB3 	Russia
+UB4 	Russia
+UB5 	Russia
+UB6 	Russia
 UB7 	Russia
 UB8 	Asiatic Russia
 UB9 	Asiatic Russia
 UC0 	Asiatic Russia
-UC1 	European Russia
+UC1 	Russia
 UC2F	Kaliningrad
 UC2K	Kaliningrad
-UC3 	European Russia
-UC4 	European Russia
-UC5 	European Russia
-UC6 	European Russia
+UC3 	Russia
+UC4 	Russia
+UC5 	Russia
+UC6 	Russia
 UC7 	Russia
 UC8 	Asiatic Russia
 UC9 	Asiatic Russia
 UD0 	Asiatic Russia
-UD1 	European Russia
+UD1 	Russia
 UD2F	Kaliningrad
 UD2K	Kaliningrad
-UD3 	European Russia
-UD4 	European Russia
-UD5 	European Russia
-UD6 	European Russia
+UD3 	Russia
+UD4 	Russia
+UD5 	Russia
+UD6 	Russia
 UD7 	Russia
 UD8 	Asiatic Russia
 UD9 	Asiatic Russia
 UE0 	Asiatic Russia
-UE1 	European Russia
+UE1 	Russia
 UE2F	Kaliningrad
 UE2K	Kaliningrad
-UE3 	European Russia
-UE4 	European Russia
-UE5 	European Russia
-UE6 	European Russia
+UE3 	Russia
+UE4 	Russia
+UE5 	Russia
+UE6 	Russia
 UE7 	Russia
 UE8 	Asiatic Russia
 UE9 	Asiatic Russia
 UF0 	Asiatic Russia
-UF1 	European Russia
+UF1 	Russia
 UF2F	Kaliningrad
 UF2K	Kaliningrad
-UF3 	European Russia
-UF4 	European Russia
-UF5 	European Russia
-UF6 	European Russia
+UF3 	Russia
+UF4 	Russia
+UF5 	Russia
+UF6 	Russia
 UF7 	Russia
 UF8 	Asiatic Russia
 UF9 	Asiatic Russia
-UG1 	European Russia
-UG3 	European Russia
-UG4 	European Russia
-UG5 	European Russia
-UG6 	European Russia
+UG1 	Russia
+UG3 	Russia
+UG4 	Russia
+UG5 	Russia
+UG6 	Russia
 UH0 	Asiatic Russia
-UH1 	European Russia
+UH1 	Russia
 UH2F	Kaliningrad
 UH2K	Kaliningrad
-UH3 	European Russia
-UH4 	European Russia
-UH5 	European Russia
-UH6 	European Russia
+UH3 	Russia
+UH4 	Russia
+UH5 	Russia
+UH6 	Russia
 UH7 	Russia
 UH8 	Asiatic Russia
 UH9 	Asiatic Russia
 UI0 	Asiatic Russia
-UI1 	European Russia
+UI1 	Russia
 UI2F	Kaliningrad
 UI2K	Kaliningrad
-UI3 	European Russia
-UI4 	European Russia
-UI5 	European Russia
-UI6 	European Russia
+UI3 	Russia
+UI4 	Russia
+UI5 	Russia
+UI6 	Russia
 UI7 	Russia
 UI8 	Asiatic Russia
 UI9 	Asiatic Russia
@@ -1418,6 +1469,7 @@ VP8/O 	So Orkney
 VP8/SA So Sandwich
 VP8/SH So Shetland
 VP9 	Bermuda
+VQ5 	Turks Caicos
 VQ9 	Chagos
 VR      China
 VR2 	Hong Kong
@@ -1449,6 +1501,7 @@ WH7K 	Kure Is
 WH8 	American Samoa
 WH9 	Wake Is
 WL 	Alaska
+WL7AM 	United States
 WP1 	Navassa Is
 WP2 	Virgin Is
 WP2L 	United States
@@ -1541,6 +1594,8 @@ YZ4 	Bosnia Herzegovina
 YZ5 	Serbia
 Z2 	Zimbabwe
 Z3 	Macedonia
+Z6 	Kosovo
+Z8 	South Sudan
 ZA 	Albania
 ZB 	Gibraltar
 ZC4 	UK Soverign Base
@@ -1564,14 +1619,14 @@ ZM7 	Chatham Is
 ZM8 	Kermadec Is
 ZM9 	Auckland Campbell
 ZP 	Paraguay
-ZR 	So Africa
+ZR 	South Africa
 ZR8     Marion Is
 ZR7     Antarctica
-ZS 	So Africa
+ZS 	South Africa
 ZS7 	Antarctica
 ZS8 	Marion Is
 ZS9 	Walvis Bay
-ZU 	So Africa
+ZU 	South Africa
 ZV 	Brazil
 ZW 	Brazil
 ZX 	Brazil
