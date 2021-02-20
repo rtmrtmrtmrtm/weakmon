@@ -1,12 +1,12 @@
 # weakmon
 
-This software implements terminal-window programs for HF JT65
-(jt65i.py) and FT8 (ft8i.py). With an Elecraft K3, both can listen for CQs on
-multiple receivers simultaneously, and switch the receiver(s) among
-bands each minute.
-
-There are also demodulators for WSPR, APRS, WWV, and WWVB. The
-software works on Macs, Linux, and FreeBSD.
+This is a set of Python/numpy/scipy terminal-window programs for HF
+JT65 (jt65i.py) and FT8 (ft8i.py). With an Elecraft K3, both can
+listen for CQs on multiple receivers simultaneously, and switch the
+receiver(s) among bands each minute. There are also demodulators for
+WSPR, APRS, WWV, and WWVB. The software works on Macs, Linux, and
+FreeBSD. For an FT8 demodulator in C++, see
+[ft8mon](https://github.com/rtmrtmrtmrtm/ft8mon).
 
 While these programs don't use Joe Taylor's WSJT software, they do
 incorporate ideas and protocol details derived from that software.
