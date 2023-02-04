@@ -136,11 +136,11 @@ def nfano_decode(in0, in1):
         xin0[i] = in0[i]
         xin1[i] = in1[i]
 
-    out_array_type = c_ubyte * (len(in0) / 2)
+    out_array_type = c_ubyte * (len(in0) // 2)
     out_array = out_array_type()
 
     n_out = c_int()
-    n_out.value = len(in0) / 2
+    n_out.value = len(in0) // 2
 
     metric_out_type = c_int * 1
     metric_out = metric_out_type()
@@ -156,7 +156,7 @@ def nfano_decode(in0, in1):
         return [ None, None ]
 
     a = []
-    for i in range(0, len(in0) / 2):
+    for i in range(0, len(in0) // 2):
         a.append(out_array[i])
 
     metric = metric_out[0]
@@ -238,7 +238,7 @@ class FFTCache:
         key = str(index) + "-" + str(quarter)
         if key in self.memo:
             return self.memo[key]
-        
+
         # caller wants a frequency a bit higher than bin,
         # so shift *down* by the indicated number of quarter bins.
         block = self.samples[index:index+self.jblock]
@@ -370,7 +370,7 @@ class WSPR:
     elif self.wav_width == 2:
       if (len(z) % 2) == 1:
         return numpy.array([])
-      zz = numpy.fromstring(z, numpy.int16)
+      zz = numpy.frombuffer(z, numpy.int16)
     else:
       sys.stderr.write("oops wave_width %d" % (self.wav_width))
       sys.exit(1)
@@ -553,21 +553,21 @@ class WSPR:
             offset = self.guess_start(xf, hza, offset)
             hza = self.guess_freq(xf, hza, offset)
             ss = xf.get(hza, offset)
-        
+
             # ss has one element per symbol time.
             # ss[i] is a 4-element FFT.
-        
+
             # first symbol is in ss[0]
             # return is [ hza, msg, snr ]
             assert len(ss[0]) >= 4
             dec = self.process1(samples_minute, ss[0:162], hza, noise)
-    
+
             if False:
                 if dec != None:
                     print("%.1f %d %.1f %.1f %s -- %s" % (hz, phase, drift, numpy.mean(hza), rr, dec.msg))
                 else:
                     print("%.1f %d %.1f %.1f %s" % (hz, phase, drift, numpy.mean(hza), rr))
-    
+
             if dec != None:
                 dec.minute = samples_minute
                 dec.start = offset
@@ -584,7 +584,7 @@ class WSPR:
                 #elif dec.snr > msgs[dec.msg].snr:
                 #    # we have a higher SNR.
                 #    msgs[dec.msg] = dec
-    
+
             sys.stdout.flush()
 
     for txt in msgs:
@@ -639,7 +639,7 @@ class WSPR:
           # nominal start of symbol in samples[]
           i0 = i * self.jblock
           i1 = i0 + nb*self.jblock
-          
+
           # search +/- slop.
           # we search separately for each symbol b/c the
           # phase may drift over the minute, and we
@@ -1061,7 +1061,7 @@ class WSPR:
         v = sorted(v, key = lambda e : -e[3])
         v = v[0:coarse_top2]
         coarse_rank += v
-    
+
     # sort coarse bins, biggest signal first.
     # coarse_rank[i] = [ drift, hz, start, strength ]
     coarse_rank = [ e for e in coarse_rank if (e[1] >= min_hz and e[1] < max_hz) ]
@@ -1107,7 +1107,7 @@ class WSPR:
             sig1 = max(m[pi1][2], m[pi1][3])
         levels.append([ sig0, sig1 ])
 
-    # estimate distributions of bin strengths for 
+    # estimate distributions of bin strengths for
     # winning and losing FSK bins, ignoring sync bins.
     # this is not perfect, since we don't really know
     # winning vs losing, and the distributions don't
@@ -1264,15 +1264,15 @@ class WSPR:
       al = "ABCDEFGHIJKLMNOPQRSTUVWXYZ "
       call = ""
       call = al[(n % 27)] + call
-      n /= 27
+      n //= 27
       call = al[(n % 27)] + call
-      n /= 27
+      n //= 27
       call = al[(n % 27)] + call
-      n /= 27
+      n //= 27
       call = num[(n % 10)] + call
-      n /= 10
+      n //= 10
       call = alnum[(n % 36)] + call
-      n /= 36
+      n //= 36
       call = alnum[(n % 37)] + call
       if n != (n % 37):
           # XXX might be Type 3
@@ -1285,21 +1285,21 @@ class WSPR:
       # valid power levels are 0, 3, 7, 10, 13, ..., 60.
       power = (m % 128) - 64
       n2 = m
-      m /= 128
+      m //= 128
 
       if power >= 0 and power <= 60 and (power % 10) in [ 0, 3, 7 ]:
           # Type 1: CALL GRID POWER
 
           # maidenhead grid locator
           loc4 = m % 10
-          m /= 10
+          m //= 10
           loc2 = m % 18
-          m /= 18
+          m //= 18
           m = 179 - m
           loc3 = m % 10
-          m /= 10
+          m //= 10
           loc1 = m
-        
+
           # 18 letters, A through R.
           if loc1 < 0 or loc1 >= 18:
               sys.stderr.write("wspr unpack oops2\n")
@@ -1361,7 +1361,7 @@ class WSPR:
           # prefix of 1 to 3 characters.
           pfx = [ "?", "?", "?" ]
           for i in [ 2, 1, 0 ]:
-              nc = n3 % 37
+              nc = int(n3 % 37)
               if nc >= 0 and nc <= 9:
                   pfx[i] = chr(ord('0') + nc)
               elif nc >= 10 and nc <= 35:
@@ -1568,7 +1568,7 @@ if False:
 1, 1, 0, 1, 1, 1, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 0, 1,
 1, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 0,
 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1,
-1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 
+1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1,
     ]
     x = r.process2(bits, [1.0]*len(bits))
     # expecting " K1ABC FN42 37"
@@ -1598,12 +1598,12 @@ def main():
       i += 2
     else:
       usage()
-  
+
   if False:
     xr = WSPR()
     xr.test_guess_offset()
     sys.exit(0)
-  
+
   if bench != None:
     sys.stdout.write("# %s %s\n" % (bench, printvars()))
     benchmark(bench, True)
@@ -1613,7 +1613,7 @@ def main():
     sys.stdout.write("# %s %s\n" % (opt, printvars()))
     optimize(opt)
     sys.exit(0)
-  
+
   if filename != None and card == None:
     r = WSPR()
     r.verbose = True
